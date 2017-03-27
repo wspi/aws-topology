@@ -34,3 +34,14 @@ pip install -r requirements.txt
 export AWS_PROFILE=XYZ
 python topology.py
 ```
+
+### Queries
+To get all nodes and relationships in neo4j web interface
+```
+MATCH (n) return n
+```
+To get all nodes of type EC2 that connects to an specific RDS (does not check ports yet)
+```
+MATCH (a:EC2)-[:BELONGS]->(b:SecurityGroup)-[:CONNECTS]->(c:SecurityGroup)<-[:BELONGS]-(d:RDS {rdsId:'rds-identifier'})
+RETURN a,b,c,d
+```
