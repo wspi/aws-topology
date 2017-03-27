@@ -1,16 +1,15 @@
-# Topologia de Clientes em Grafos
+# Customer's Graph Topology
 
 ## Under the Hood
 ### Neo4j
-Banco de dados de grafos rodando em docker para visualizar e realizar queries na arquitetura do cliente
+Graph database, used for visualize and query customer graph
 
 ### py2neo
-Driver do Neo4j para Python
-
+Neo4j driver for python, used to store the data into Neo4j
 ### Boto3
-SDK da AWS para Python utilizada para coletar as informações da conta do cliente
+AWS SDK for python, used to get customer info
 
-## Serviços Suportados
+## Supported Services
 * VPC
 * Subnet
 * Internet Gateway
@@ -22,42 +21,14 @@ SDK da AWS para Python utilizada para coletar as informações da conta do clien
 * DynamoDB
 * Lambda
 
-## Relacionamentos
-![Alt text](https://g.gravizo.com/source/svg/thiisthemark?http%3A%2F%2Fwww.gravizo.com)
-![Alt text](http://www.gravizo.com/img/1x1.png#
+## Relationships
+![Alt text](https://bytebucket.org/credibilit/aws-topology/raw/306ecc1f23ff63acaadb5d347ec33e631d246096/topology.png?token=01195b0fc1b34e2e096519381228d41b8193dc5a)
 
-
-thiisthemark        
-@startuml
-object VPC
-object Subnet
-object InternetGateway
-object EC2
-object ELB
-object SecurityGroup
-object ElastiCache
-object RDS
-object DynamoDB
-object Lambda
-
-VPC <|-- Subnet
-VPC <|-- InternetGateway
-Subnet <|-- EC2
-Subnet <|-- ELB
-SecurityGroup <|-- EC2
-SecurityGroup <|-- ElastiCache
-SecurityGroup <|-- RDS
-SecurityGroup <|-- Lambda
-
-@enduml
-thiisthemark        
-)
-
-## Execução
+## Running
 ### Neo4j
 ```docker run --publish=7474:7474 --publish=7687:7687 --env=NEO4J_AUTH=none neo4j```
 
-### Função
+### Script
 ```
 pip install -r requirements.txt
 export AWS_PROFILE=XYZ
