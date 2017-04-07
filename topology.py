@@ -176,15 +176,42 @@ def create_relationships():
                 for group in rule['UserIdGroupPairs']:
                     tx = graph.begin()
                     graphFromSg = graph.find(label="SecurityGroup",property_key='securityGroupId',property_value=group['GroupId']).next()
-                    rel = Relationship(graphFromSg, "CONNECTS", graphSg)
+                    if rule['IpProtocol'] == '-1':
+                        protocol = 'All'
+                        portRange = '0 - 65535'
+                    else:
+                        protocol = rule['IpProtocol']
+                        if rule['FromPort'] == rule['ToPort']:
+                            portRange = rule['FromPort']
+                        else:
+                            portRange = "%d - %d" %(rule['FromPort'], rule['ToPort'])
+                    rel = Relationship(graphFromSg, "CONNECTS", graphSg, protocol=protocol,port=portRange)
                     tx.create(rel)
                     tx.commit()
             if (rule['IpRanges'] != []):
                 for cidr in rule['IpRanges']:
                     tx = graph.begin()
-                    graphCidr = Node("IP", cidr=cidr['CidrIp'])
-                    tx.merge(graphCidr)
-                    rel = Relationship(graphCidr, "CONNECTS", graphSg)
+                    try:
+                        graphCidr = graph.find(label="IP",property_key='cidr',property_value=cidr['CidrIp']).next()
+                    except:
+                        graphCidr = Node("IP", cidr=cidr['CidrIp'])
+                        tx.create(graphCidr)
+                    if rule['IpProtocol'] == '-1':
+                        protocol = 'All'
+                        portRange = '0 - 65535'
+                    else:
+                        protocol = rule['IpProtocol']
+                        if rule['FromPort'] == rule['ToPort']:
+                            portRange = rule['FromPort']
+                        else:
+                            portRange = "%d - %d" %(rule['FromPort'], rule['ToPort'])
+                    rel = Relationship(graphCidr, "CONNECTS", graphSg, protocol=protocol,port=portRange)
+                    if(sg['GroupId'] == 'sg-02e57866'):
+                        print(sg['GroupId'])
+                        print(graphSg)
+                        print(cidr['CidrIp'])
+                        print(graphCidr)
+                        print(rel)
                     tx.create(rel)
                     tx.commit()
 
