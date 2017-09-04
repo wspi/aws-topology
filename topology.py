@@ -87,17 +87,20 @@ def create_ec2():
             instanceId = instance['Instances'][0]['InstanceId']
             state = instance['Instances'][0]['State']['Name']
             instanceType = instance['Instances'][0]['InstanceType']
-            subnetId = instance['Instances'][0]['SubnetId']
-            name = ""
-            if (instance['Instances'][0].__contains__('Tags')):
-                for tag in instance['Instances'][0]['Tags']:
-                    if tag['Key'] == 'Name':
-                        name = tag['Value']
-            graphEc2 = Node("EC2", instanceId=instanceId, name=name, state=state, type=instanceType)
-            graphSubnet = graph.find(label="Subnet",property_key='subnetId',property_value=subnetId).next()
-            rel = Relationship(graphEc2, "BELONGS", graphSubnet)
-            tx.create(rel)
-            tx.commit()
+            if instance['Instances'][0].__contains__('SubnetId'):
+                subnetId = instance['Instances'][0]['SubnetId']
+                name = ""
+                if (instance['Instances'][0].__contains__('Tags')):
+                    for tag in instance['Instances'][0]['Tags']:
+                        if tag['Key'] == 'Name':
+                            name = tag['Value']
+                graphEc2 = Node("EC2", instanceId=instanceId, name=name, state=state, type=instanceType)
+                graphSubnet = graph.find(label="Subnet",property_key='subnetId',property_value=subnetId).next()
+                rel = Relationship(graphEc2, "BELONGS", graphSubnet)
+                tx.create(rel)
+                tx.commit()
+	    else:
+		print(instance['Instances'][0])
 
 def create_rds():
     databases = rds.describe_db_instances()['DBInstances']
@@ -206,12 +209,6 @@ def create_relationships():
                         else:
                             portRange = "%d - %d" %(rule['FromPort'], rule['ToPort'])
                     rel = Relationship(graphCidr, "CONNECTS", graphSg, protocol=protocol,port=portRange)
-                    if(sg['GroupId'] == 'sg-02e57866'):
-                        print(sg['GroupId'])
-                        print(graphSg)
-                        print(cidr['CidrIp'])
-                        print(graphCidr)
-                        print(rel)
                     tx.create(rel)
                     tx.commit()
 
