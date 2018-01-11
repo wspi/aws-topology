@@ -2,17 +2,11 @@
 import boto3, traceback, sys, botocore
 from py2neo import Graph, Node, Relationship
 
-graph = Graph("http://localhost:7474")
-ec2 = boto3.client('ec2')
-rds = boto3.client('rds')
-elasticache = boto3.client('elasticache')
-loadbalancer = boto3.client('elb')
-lambdaFunctions = boto3.client('lambda')
-dynamodb = boto3.client('dynamodb')
+graph = Graph(user="neo4j",password="8X3TtkWauFB9",host="10.0.5.42")
 
 hasLambda = True
 
-def create_vpc():
+def create_vpc(graphRegion):
     vpcs = ec2.describe_vpcs()
     if vpcs['Vpcs'] == []:
         pass
@@ -30,6 +24,8 @@ def create_vpc():
             tx = graph.begin()
             graphVpc = Node("VPC", vpcId=vpc['VpcId'], name=name, cidr=vpc['CidrBlock'])
             tx.merge(graphVpc)
+            rel = Relationship(graphVpc, "BELONGS", graphRegion)
+            tx.create(rel)
             for subnet in subnets:
                 rel = Relationship(subnet, "BELONGS", graphVpc)
                 tx.create(rel)
@@ -87,7 +83,7 @@ def create_ec2():
             instanceId = instance['Instances'][0]['InstanceId']
             state = instance['Instances'][0]['State']['Name']
             instanceType = instance['Instances'][0]['InstanceType']
-            if instance['Instances'][0].__contains__('SubnetId'):
+            if not instance['Instances'][0]['State']['Code'] == 48:
                 subnetId = instance['Instances'][0]['SubnetId']
                 name = ""
                 if (instance['Instances'][0].__contains__('Tags')):
@@ -99,8 +95,6 @@ def create_ec2():
                 rel = Relationship(graphEc2, "BELONGS", graphSubnet)
                 tx.create(rel)
                 tx.commit()
-	    else:
-		print(instance['Instances'][0])
 
 def create_rds():
     databases = rds.describe_db_instances()['DBInstances']
@@ -133,11 +127,61 @@ def create_elb():
             tx.commit()
 
         for instance in elb["Instances"]:
+            try:
+                tx = graph.begin()
+                graphInstance = graph.find(label="EC2",property_key='instanceId',property_value=instance['InstanceId']).next()
+                rel = Relationship(graphInstance, "BELONGS", graphElb)
+                tx.create(rel)
+                tx.commit()
+            except:
+                pass
+
+def create_alb():
+    albs = elbv2.describe_load_balancers()['LoadBalancers']
+    for alb in albs:
+        tx = graph.begin()
+        graphAlb = Node("ALB", name=alb['LoadBalancerName'])
+        tx.merge(graphAlb)
+        tx.commit()
+        albArn = alb['LoadBalancerArn']
+        for subnet in alb['AvailabilityZones']:
             tx = graph.begin()
-            graphInstance = graph.find(label="EC2",property_key='instanceId',property_value=instance['InstanceId']).next()
-            rel = Relationship(graphInstance, "BELONGS", graphElb)
+            graphSubnet = graph.find(label="Subnet",property_key='subnetId',property_value=subnet['SubnetId']).next()
+            rel = Relationship(graphAlb, "BELONGS", graphSubnet)
             tx.create(rel)
             tx.commit()
+
+
+        tgs = elbv2.describe_target_groups(LoadBalancerArn=albArn)['TargetGroups']
+        for tg in tgs:
+            tgArn = tg['TargetGroupArn']
+            targets = elbv2.describe_target_health(TargetGroupArn=tgArn)['TargetHealthDescriptions']
+            tx = graph.begin()
+            graphTG = Node("Target Group", name=tg['TargetGroupName'])
+            tx.merge(graphTG)
+            rel = Relationship(graphTG, "BELONGS", graphAlb)
+            tx.create(rel)
+            tx.commit()
+            for target in targets:
+                try:
+                    tx = graph.begin()
+                    graphInstance = graph.find(label="EC2",property_key='instanceId',property_value=target['Target']['Id']).next()
+                    rel = Relationship(graphInstance, "BELONGS", graphTG)
+                    tx.create(rel)
+                    tx.commit()
+                except:
+                    pass
+
+
+        # for instance in alb["Instances"]:
+        #     try:
+        #         tx = graph.begin()
+        #         graphInstance = graph.find(label="EC2",property_key='instanceId',property_value=instance['InstanceId']).next()
+        #         rel = Relationship(graphInstance, "BELONGS", graphAlb)
+        #         tx.create(rel)
+        #         tx.commit()
+        #     except:
+        #         pass
 
 def create_lambda():
     try:
@@ -272,12 +316,30 @@ def create_relationships():
         except:
             pass
 
-create_vpc()
-create_sg()
-create_ec2()
-create_rds()
-create_elb()
-create_elc()
-create_lambda()
-create_dynamodb()
-create_relationships()
+
+regions = ["us-east-1", "sa-east-1", "us-west-2"]
+
+for region in regions:
+    ec2 = boto3.client('ec2', region_name=region)
+    rds = boto3.client('rds', region_name=region)
+    elasticache = boto3.client('elasticache', region_name=region)
+    loadbalancer = boto3.client('elb', region_name=region)
+    elbv2 = boto3.client('elbv2', region_name=region)
+    lambdaFunctions = boto3.client('lambda', region_name=region)
+    dynamodb = boto3.client('dynamodb', region_name=region)
+
+    tx = graph.begin()
+    graphRegion = Node("Region", name=region)
+    tx.merge(graphRegion)
+    tx.commit()
+
+    create_vpc(graphRegion)
+    create_sg()
+    create_ec2()
+    create_rds()
+    create_elb()
+    create_alb()
+    create_elc()
+    create_lambda()
+    create_dynamodb()
+    create_relationships()
