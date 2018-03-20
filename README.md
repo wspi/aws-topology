@@ -22,6 +22,7 @@ AWS SDK for python, used to get customer info
 * Lambda
 
 ## Relationships
+![Alt text](https://github.com/wspi/aws-topology/blob/master/topology.png)
 
 
 ## Running
