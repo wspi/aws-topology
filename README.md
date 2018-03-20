@@ -22,7 +22,7 @@ AWS SDK for python, used to get customer info
 * Lambda
 
 ## Relationships
-![Alt text](https://bytebucket.org/credibilit/aws-topology/raw/306ecc1f23ff63acaadb5d347ec33e631d246096/topology.png?token=01195b0fc1b34e2e096519381228d41b8193dc5a)
+
 
 ## Running
 ### Neo4j

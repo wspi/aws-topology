@@ -2,7 +2,7 @@
 import boto3, traceback, sys, botocore
 from py2neo import Graph, Node, Relationship
 
-graph = Graph(user="neo4j",password="8X3TtkWauFB9",host="10.0.5.42")
+graph = Graph(user="neo4j",password="8X3TtkWauFB9",host="10.0.5.48")
 
 hasLambda = True
 
@@ -213,95 +213,95 @@ def create_dynamodb():
         tx.commit()
 
 def create_relationships():
-    securityGroups = ec2.describe_security_groups()
+    try:
+        securityGroups = ec2.describe_security_groups()
 
-    for sg in securityGroups['SecurityGroups']:
-        graphSg = graph.find(label="SecurityGroup",property_key='securityGroupId',property_value=sg['GroupId']).next()
-        ingressRules = sg['IpPermissions']
-        for rule in ingressRules:
-            if (rule['UserIdGroupPairs'] != []):
-                for group in rule['UserIdGroupPairs']:
-                    tx = graph.begin()
-                    graphFromSg = graph.find(label="SecurityGroup",property_key='securityGroupId',property_value=group['GroupId']).next()
-                    if rule['IpProtocol'] == '-1':
-                        protocol = 'All'
-                        portRange = '0 - 65535'
-                    else:
-                        protocol = rule['IpProtocol']
-                        if rule['FromPort'] == rule['ToPort']:
-                            portRange = rule['FromPort']
+        for sg in securityGroups['SecurityGroups']:
+            graphSg = graph.find(label="SecurityGroup",property_key='securityGroupId',property_value=sg['GroupId']).next()
+            ingressRules = sg['IpPermissions']
+            for rule in ingressRules:
+                if (rule['UserIdGroupPairs'] != []):
+                    for group in rule['UserIdGroupPairs']:
+                        tx = graph.begin()
+                        graphFromSg = graph.find(label="SecurityGroup",property_key='securityGroupId',property_value=group['GroupId']).next()
+                        if rule['IpProtocol'] == '-1':
+                            protocol = 'All'
+                            portRange = '0 - 65535'
                         else:
-                            portRange = "%d - %d" %(rule['FromPort'], rule['ToPort'])
-                    rel = Relationship(graphFromSg, "CONNECTS", graphSg, protocol=protocol,port=portRange)
-                    tx.create(rel)
-                    tx.commit()
-            if (rule['IpRanges'] != []):
-                for cidr in rule['IpRanges']:
-                    tx = graph.begin()
-                    try:
-                        graphCidr = graph.find(label="IP",property_key='cidr',property_value=cidr['CidrIp']).next()
-                    except:
-                        graphCidr = Node("IP", cidr=cidr['CidrIp'])
-                        tx.create(graphCidr)
-                    if rule['IpProtocol'] == '-1':
-                        protocol = 'All'
-                        portRange = '0 - 65535'
-                    else:
-                        protocol = rule['IpProtocol']
-                        if rule['FromPort'] == rule['ToPort']:
-                            portRange = rule['FromPort']
+                            protocol = rule['IpProtocol']
+                            if rule['FromPort'] == rule['ToPort']:
+                                portRange = rule['FromPort']
+                            else:
+                                portRange = "%d - %d" %(rule['FromPort'], rule['ToPort'])
+                        rel = Relationship(graphFromSg, "CONNECTS", graphSg, protocol=protocol,port=portRange)
+                        tx.create(rel)
+                        tx.commit()
+                if (rule['IpRanges'] != []):
+                    for cidr in rule['IpRanges']:
+                        tx = graph.begin()
+                        try:
+                            graphCidr = graph.find(label="IP",property_key='cidr',property_value=cidr['CidrIp']).next()
+                        except:
+                            graphCidr = Node("IP", cidr=cidr['CidrIp'])
+                            tx.create(graphCidr)
+                        if rule['IpProtocol'] == '-1':
+                            protocol = 'All'
+                            portRange = '0 - 65535'
                         else:
-                            portRange = "%d - %d" %(rule['FromPort'], rule['ToPort'])
-                    rel = Relationship(graphCidr, "CONNECTS", graphSg, protocol=protocol,port=portRange)
-                    tx.create(rel)
-                    tx.commit()
+                            protocol = rule['IpProtocol']
+                            if rule['FromPort'] == rule['ToPort']:
+                                portRange = rule['FromPort']
+                            else:
+                                portRange = "%d - %d" %(rule['FromPort'], rule['ToPort'])
+                        rel = Relationship(graphCidr, "CONNECTS", graphSg, protocol=protocol,port=portRange)
+                        tx.create(rel)
+                        tx.commit()
 
-        instances = ec2.describe_instances(Filters=[{'Name': 'instance.group-id','Values':[sg['GroupId']]}])
-        if instances['Reservations'] == []:
-            pass
-        else:
-            for instance in instances['Reservations']:
-                tx = graph.begin()
-                instanceId = instance['Instances'][0]['InstanceId']
-                graphEc2 = graph.find(label="EC2",property_key='instanceId',property_value=instanceId).next()
-                rel = Relationship(graphEc2, "BELONGS", graphSg)
-                tx.create(rel)
-                tx.commit()
-
-        databases = rds.describe_db_instances()['DBInstances']
-        for db in databases:
-            dbSgs = db['VpcSecurityGroups']
-            for dbSg in dbSgs:
-                if (dbSg['VpcSecurityGroupId'] == sg['GroupId']):
+            instances = ec2.describe_instances(Filters=[{'Name': 'instance.group-id','Values':[sg['GroupId']]}])
+            if instances['Reservations'] == []:
+                pass
+            else:
+                for instance in instances['Reservations']:
                     tx = graph.begin()
-                    graphRds = graph.find(label="RDS",property_key='rdsId',property_value=db['DBInstanceIdentifier']).next()
-                    rel = Relationship(graphRds, "BELONGS", graphSg)
+                    instanceId = instance['Instances'][0]['InstanceId']
+                    graphEc2 = graph.find(label="EC2",property_key='instanceId',property_value=instanceId).next()
+                    rel = Relationship(graphEc2, "BELONGS", graphSg)
                     tx.create(rel)
                     tx.commit()
 
-        elcs = elasticache.describe_cache_clusters()['CacheClusters']
-        for elc in elcs:
-            elcSgs = elc['SecurityGroups']
-            for elcSg in elcSgs:
-                if (elcSg['SecurityGroupId'] == sg['GroupId']):
-                    tx = graph.begin()
-                    graphElc = graph.find(label="ElastiCache",property_key='elcId',property_value=elc['CacheClusterId']).next()
-                    rel = Relationship(graphElc, "BELONGS", graphSg)
-                    tx.create(rel)
-                    tx.commit()
+            databases = rds.describe_db_instances()['DBInstances']
+            for db in databases:
+                dbSgs = db['VpcSecurityGroups']
+                for dbSg in dbSgs:
+                    if (dbSg['VpcSecurityGroupId'] == sg['GroupId']):
+                        tx = graph.begin()
+                        graphRds = graph.find(label="RDS",property_key='rdsId',property_value=db['DBInstanceIdentifier']).next()
+                        rel = Relationship(graphRds, "BELONGS", graphSg)
+                        tx.create(rel)
+                        tx.commit()
 
-        elbs = loadbalancer.describe_load_balancers()['LoadBalancerDescriptions']
-        for elb in elbs:
-            elbSgs = elb['SecurityGroups']
-            for elbSg in elbSgs:
-                if (elbSg == sg['GroupId']):
-                    tx = graph.begin()
-                    graphElb = graph.find(label="ELB",property_key='name',property_value=elb['LoadBalancerName']).next()
-                    rel = Relationship(graphElb, "BELONGS", graphSg)
-                    tx.create(rel)
-                    tx.commit()
+            elcs = elasticache.describe_cache_clusters()['CacheClusters']
+            for elc in elcs:
+                elcSgs = elc['SecurityGroups']
+                for elcSg in elcSgs:
+                    if (elcSg['SecurityGroupId'] == sg['GroupId']):
+                        tx = graph.begin()
+                        graphElc = graph.find(label="ElastiCache",property_key='elcId',property_value=elc['CacheClusterId']).next()
+                        rel = Relationship(graphElc, "BELONGS", graphSg)
+                        tx.create(rel)
+                        tx.commit()
 
-        try:
+            elbs = loadbalancer.describe_load_balancers()['LoadBalancerDescriptions']
+            for elb in elbs:
+                elbSgs = elb['SecurityGroups']
+                for elbSg in elbSgs:
+                    if (elbSg == sg['GroupId']):
+                        tx = graph.begin()
+                        graphElb = graph.find(label="ELB",property_key='name',property_value=elb['LoadBalancerName']).next()
+                        rel = Relationship(graphElb, "BELONGS", graphSg)
+                        tx.create(rel)
+                        tx.commit()
+
             if (hasLambda):
                 lambdas = lambdaFunctions.list_functions()['Functions']
                 for l in lambdas:
@@ -313,11 +313,11 @@ def create_relationships():
                                 rel = Relationship(graphLambda, "BELONGS", graphSg)
                                 tx.create(rel)
                                 tx.commit()
-        except:
-            pass
+    except:
+        pass
 
 
-regions = ["us-east-1", "sa-east-1", "us-west-2"]
+regions = ["us-east-1"]
 
 for region in regions:
     ec2 = boto3.client('ec2', region_name=region)
