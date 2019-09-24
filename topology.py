@@ -2,7 +2,7 @@
 import boto3, traceback, sys, botocore
 from py2neo import Graph, Node, Relationship
 
-graph = Graph(user="neo4j",password="8X3TtkWauFB9",host="10.0.5.48")
+graph = Graph(user="neo4j",password="",host="localhost")
 
 hasLambda = True
 
@@ -91,7 +91,7 @@ def create_ec2():
                         if tag['Key'] == 'Name':
                             name = tag['Value']
                 graphEc2 = Node("EC2", instanceId=instanceId, name=name, state=state, type=instanceType)
-                graphSubnet = graph.find(label="Subnet",property_key='subnetId',property_value=subnetId).next()
+                graphSubnet = next(graph.find(label="Subnet",property_key='subnetId',property_value=subnetId)) 
                 rel = Relationship(graphEc2, "BELONGS", graphSubnet)
                 tx.create(rel)
                 tx.commit()
@@ -121,7 +121,7 @@ def create_elb():
         tx.commit()
         for subnet in elb['Subnets']:
             tx = graph.begin()
-            graphSubnet = graph.find(label="Subnet",property_key='subnetId',property_value=subnet).next()
+            graphSubnet = next(graph.find(label="Subnet",property_key='subnetId',property_value=subnet))
             rel = Relationship(graphElb, "BELONGS", graphSubnet)
             tx.create(rel)
             tx.commit()
@@ -129,7 +129,7 @@ def create_elb():
         for instance in elb["Instances"]:
             try:
                 tx = graph.begin()
-                graphInstance = graph.find(label="EC2",property_key='instanceId',property_value=instance['InstanceId']).next()
+                graphInstance = next(graph.find(label="EC2",property_key='instanceId',property_value=instance['InstanceId']))
                 rel = Relationship(graphInstance, "BELONGS", graphElb)
                 tx.create(rel)
                 tx.commit()
@@ -146,7 +146,7 @@ def create_alb():
         albArn = alb['LoadBalancerArn']
         for subnet in alb['AvailabilityZones']:
             tx = graph.begin()
-            graphSubnet = graph.find(label="Subnet",property_key='subnetId',property_value=subnet['SubnetId']).next()
+            graphSubnet = next(graph.find(label="Subnet",property_key='subnetId',property_value=subnet['SubnetId']))
             rel = Relationship(graphAlb, "BELONGS", graphSubnet)
             tx.create(rel)
             tx.commit()
@@ -165,23 +165,24 @@ def create_alb():
             for target in targets:
                 try:
                     tx = graph.begin()
-                    graphInstance = graph.find(label="EC2",property_key='instanceId',property_value=target['Target']['Id']).next()
+                    graphInstance = next(graph.find(label="EC2",property_key='instanceId',property_value=target['Target']['Id']))
                     rel = Relationship(graphInstance, "BELONGS", graphTG)
                     tx.create(rel)
                     tx.commit()
                 except:
                     pass
 
+        # Comment out if issues
 
-        # for instance in alb["Instances"]:
-        #     try:
-        #         tx = graph.begin()
-        #         graphInstance = graph.find(label="EC2",property_key='instanceId',property_value=instance['InstanceId']).next()
-        #         rel = Relationship(graphInstance, "BELONGS", graphAlb)
-        #         tx.create(rel)
-        #         tx.commit()
-        #     except:
-        #         pass
+        for instance in alb["Instances"]:
+            try:
+                tx = graph.begin()
+                graphInstance = next(graph.find(label="EC2",property_key='instanceId',property_value=instance['InstanceId']))
+                rel = Relationship(graphInstance, "BELONGS", graphAlb)
+                tx.create(rel)
+                tx.commit()
+            except:
+                pass
 
 def create_lambda():
     try:
@@ -217,13 +218,13 @@ def create_relationships():
         securityGroups = ec2.describe_security_groups()
 
         for sg in securityGroups['SecurityGroups']:
-            graphSg = graph.find(label="SecurityGroup",property_key='securityGroupId',property_value=sg['GroupId']).next()
+            graphSg = next(graph.find(label="SecurityGroup",property_key='securityGroupId',property_value=sg['GroupId']))
             ingressRules = sg['IpPermissions']
             for rule in ingressRules:
                 if (rule['UserIdGroupPairs'] != []):
                     for group in rule['UserIdGroupPairs']:
                         tx = graph.begin()
-                        graphFromSg = graph.find(label="SecurityGroup",property_key='securityGroupId',property_value=group['GroupId']).next()
+                        graphFromSg = next(graph.find(label="SecurityGroup",property_key='securityGroupId',property_value=group['GroupId']))
                         if rule['IpProtocol'] == '-1':
                             protocol = 'All'
                             portRange = '0 - 65535'
@@ -240,7 +241,7 @@ def create_relationships():
                     for cidr in rule['IpRanges']:
                         tx = graph.begin()
                         try:
-                            graphCidr = graph.find(label="IP",property_key='cidr',property_value=cidr['CidrIp']).next()
+                            graphCidr = next(graph.find(label="IP",property_key='cidr',property_value=cidr['CidrIp']))
                         except:
                             graphCidr = Node("IP", cidr=cidr['CidrIp'])
                             tx.create(graphCidr)
@@ -264,7 +265,7 @@ def create_relationships():
                 for instance in instances['Reservations']:
                     tx = graph.begin()
                     instanceId = instance['Instances'][0]['InstanceId']
-                    graphEc2 = graph.find(label="EC2",property_key='instanceId',property_value=instanceId).next()
+                    graphEc2 = next(graph.find(label="EC2",property_key='instanceId',property_value=instanceId))
                     rel = Relationship(graphEc2, "BELONGS", graphSg)
                     tx.create(rel)
                     tx.commit()
@@ -275,7 +276,7 @@ def create_relationships():
                 for dbSg in dbSgs:
                     if (dbSg['VpcSecurityGroupId'] == sg['GroupId']):
                         tx = graph.begin()
-                        graphRds = graph.find(label="RDS",property_key='rdsId',property_value=db['DBInstanceIdentifier']).next()
+                        graphRds = next(graph.find(label="RDS",property_key='rdsId',property_value=db['DBInstanceIdentifier']))
                         rel = Relationship(graphRds, "BELONGS", graphSg)
                         tx.create(rel)
                         tx.commit()
@@ -286,7 +287,7 @@ def create_relationships():
                 for elcSg in elcSgs:
                     if (elcSg['SecurityGroupId'] == sg['GroupId']):
                         tx = graph.begin()
-                        graphElc = graph.find(label="ElastiCache",property_key='elcId',property_value=elc['CacheClusterId']).next()
+                        graphElc = next(graph.find(label="ElastiCache",property_key='elcId',property_value=elc['CacheClusterId']))
                         rel = Relationship(graphElc, "BELONGS", graphSg)
                         tx.create(rel)
                         tx.commit()
@@ -297,7 +298,7 @@ def create_relationships():
                 for elbSg in elbSgs:
                     if (elbSg == sg['GroupId']):
                         tx = graph.begin()
-                        graphElb = graph.find(label="ELB",property_key='name',property_value=elb['LoadBalancerName']).next()
+                        graphElb = next(graph.find(label="ELB",property_key='name',property_value=elb['LoadBalancerName']))
                         rel = Relationship(graphElb, "BELONGS", graphSg)
                         tx.create(rel)
                         tx.commit()
@@ -309,7 +310,7 @@ def create_relationships():
                         for lambdaSg in l['VpcConfig']['SecurityGroupIds']:
                             if (lambdaSg == sg['GroupId']):
                                 tx = graph.begin()
-                                graphLambda = graph.find(label="Lambda",property_key='name',property_value=l['FunctionName']).next()
+                                graphLambda = next(graph.find(label="Lambda",property_key='name',property_value=l['FunctionName']))
                                 rel = Relationship(graphLambda, "BELONGS", graphSg)
                                 tx.create(rel)
                                 tx.commit()
@@ -317,9 +318,10 @@ def create_relationships():
         pass
 
 
-regions = ["us-east-1"]
+regions = ["eu-central-1", "eu-west-1", "eu-west-2", "eu-west-3", "eu-north-1"]
 
 for region in regions:
+    print("Querying region: " + region)
     ec2 = boto3.client('ec2', region_name=region)
     rds = boto3.client('rds', region_name=region)
     elasticache = boto3.client('elasticache', region_name=region)
