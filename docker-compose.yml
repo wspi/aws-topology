@@ -1,5 +1,14 @@
-##docker-compose.yml
-neo4j:
-  image: neo4j:latest
-  ports:
-   - "17474:7474"
+version: '3'
+services:
+  neo4j:
+    image: neo4j:latest
+    environment:
+      NEO4J_AUTH: none
+    ports:
+      - '7474:7474'
+      - '7473:7473'
+      - '7687:7687'
+    volumes:
+      - "neo4j_data:/var/lib/neo4j/data"
+volumes:
+  neo4j_data:

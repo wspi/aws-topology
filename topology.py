@@ -1,19 +1,21 @@
 #!/usr/bin/env python
-import boto3, traceback, sys, botocore
-from py2neo import Graph, Node, Relationship
+import boto3
+import botocore
+from py2neo import Graph, Node, Relationship, NodeSelector
 
-graph = Graph(user="neo4j",password="",host="localhost")
+graph = Graph(user="neo4j", password="", host="localhost")
 
-hasLambda = True
+has_lambda = True
 
-def create_vpc(graphRegion):
+
+def create_vpc(graph_region):
     vpcs = ec2.describe_vpcs()
-    if vpcs['Vpcs'] == []:
+    if not vpcs['Vpcs']:
         pass
     else:
         for vpc in vpcs['Vpcs']:
             name = ""
-            if (vpc.__contains__('Tags')):
+            if vpc.__contains__('Tags'):
                 for tag in vpc['Tags']:
                     if tag['Key'] == 'Name':
                         name = tag['Value']
@@ -22,55 +24,58 @@ def create_vpc(graphRegion):
             igws = create_igws(vpc['VpcId'])
 
             tx = graph.begin()
-            graphVpc = Node("VPC", vpcId=vpc['VpcId'], name=name, cidr=vpc['CidrBlock'])
-            tx.merge(graphVpc)
-            rel = Relationship(graphVpc, "BELONGS", graphRegion)
+            graph_vpc = Node("VPC", vpcId=vpc['VpcId'], name=name, cidr=vpc['CidrBlock'])
+            tx.merge(graph_vpc)
+            rel = Relationship(graph_vpc, "BELONGS", graph_region)
             tx.create(rel)
             for subnet in subnets:
-                rel = Relationship(subnet, "BELONGS", graphVpc)
+                rel = Relationship(subnet, "BELONGS", graph_vpc)
                 tx.create(rel)
             for igw in igws:
-                rel = Relationship(igw, "ATTACHED", graphVpc)
+                rel = Relationship(igw, "ATTACHED", graph_vpc)
                 tx.create(rel)
             tx.commit()
 
+
 def create_subnets(vpc_id):
-    subnetsArray = []
-    subnets = ec2.describe_subnets(Filters=[{'Name': 'vpc-id','Values':[vpc_id]}])
-    if subnets['Subnets'] == []:
+    subnets_array = []
+    subnets = ec2.describe_subnets(Filters=[{'Name': 'vpc-id', 'Values': [vpc_id]}])
+    if not subnets['Subnets']:
         pass
     else:
         for subnet in subnets['Subnets']:
             name = ""
-            if (subnet.__contains__('Tags')):
+            if subnet.__contains__('Tags'):
                 for tag in subnet['Tags']:
                     if tag['Key'] == 'Name':
                         name = tag['Value']
             tx = graph.begin()
-            graphSubnet = Node("Subnet", subnetId=subnet['SubnetId'], name=name, az=subnet['AvailabilityZone'], cidr=subnet['CidrBlock'])
-            tx.merge(graphSubnet)
+            graph_subnet = Node("Subnet", subnetId=subnet['SubnetId'], name=name, az=subnet['AvailabilityZone'],
+                               cidr=subnet['CidrBlock'])
+            tx.merge(graph_subnet)
             tx.commit()
-            subnetsArray.append(graphSubnet)
-    return subnetsArray
+            subnets_array.append(graph_subnet)
+    return subnets_array
+
 
 def create_igws(vpc_id):
-    igwsArray = []
-    igws = ec2.describe_internet_gateways(Filters=[{'Name': 'attachment.vpc-id', 'Values':[vpc_id]}])
-    if igws['InternetGateways'] == []:
+    igws_array = []
+    igws = ec2.describe_internet_gateways(Filters=[{'Name': 'attachment.vpc-id', 'Values': [vpc_id]}])
+    if not igws['InternetGateways']:
         pass
     else:
         for igw in igws['InternetGateways']:
             name = ""
-            if (igw.__contains__('Tags')):
+            if igw.__contains__('Tags'):
                 for tag in igw['Tags']:
                     if tag['Key'] == 'Name':
                         name = tag['Value']
             tx = graph.begin()
-            graphIgw = Node("IGW", igwId=igw['InternetGatewayId'], name=name)
-            tx.merge(graphIgw)
+            graph_igw = Node("IGW", igwId=igw['InternetGatewayId'], name=name)
+            tx.merge(graph_igw)
             tx.commit()
-            igwsArray.append(graphIgw)
-    return igwsArray
+            igws_array.append(graph_igw)
+    return igws_array
 
 
 def create_ec2():
@@ -80,93 +85,103 @@ def create_ec2():
     else:
         for instance in instances['Reservations']:
             tx = graph.begin()
-            instanceId = instance['Instances'][0]['InstanceId']
+            instance_id = instance['Instances'][0]['InstanceId']
             state = instance['Instances'][0]['State']['Name']
-            instanceType = instance['Instances'][0]['InstanceType']
+            instance_type = instance['Instances'][0]['InstanceType']
+            platform = instance['Instances'][0]['Platform']
             if not instance['Instances'][0]['State']['Code'] == 48:
-                subnetId = instance['Instances'][0]['SubnetId']
+                subnet_id = instance['Instances'][0]['SubnetId']
                 name = ""
-                if (instance['Instances'][0].__contains__('Tags')):
+                if instance['Instances'][0].__contains__('Tags'):
                     for tag in instance['Instances'][0]['Tags']:
                         if tag['Key'] == 'Name':
                             name = tag['Value']
-                graphEc2 = Node("EC2", instanceId=instanceId, name=name, state=state, type=instanceType)
-                graphSubnet = next(graph.find(label="Subnet",property_key='subnetId',property_value=subnetId)) 
-                rel = Relationship(graphEc2, "BELONGS", graphSubnet)
+                graph_ec2 = Node("EC2", instanceId=instance_id, name=name, state=state, type=instance_type, platform=platform)
+                selector = NodeSelector(graph)
+                graph_subnet = selector.select("Subnet", subnetId=subnet_id)
+
+                rel = Relationship(graph_ec2, "BELONGS", graph_subnet)
                 tx.create(rel)
                 tx.commit()
+
 
 def create_rds():
     databases = rds.describe_db_instances()['DBInstances']
     for db in databases:
         tx = graph.begin()
-        graphRds = Node("RDS", rdsId=db['DBInstanceIdentifier'])
-        tx.merge(graphRds)
+        graph_rds = Node("RDS", rdsId=db['DBInstanceIdentifier'])
+        tx.merge(graph_rds)
         tx.commit()
+
 
 def create_elc():
     elcs = elasticache.describe_cache_clusters()['CacheClusters']
     for elc in elcs:
         tx = graph.begin()
-        graphElc = Node("ElastiCache", elcId=elc['CacheClusterId'])
-        tx.merge(graphElc)
+        graph_elc = Node("ElastiCache", elcId=elc['CacheClusterId'])
+        tx.merge(graph_elc)
         tx.commit()
+
 
 def create_elb():
     elbs = loadbalancer.describe_load_balancers()['LoadBalancerDescriptions']
     for elb in elbs:
         tx = graph.begin()
-        graphElb = Node("ELB", name=elb['LoadBalancerName'])
-        tx.merge(graphElb)
+        graph_elb = Node("ELB", name=elb['LoadBalancerName'])
+        tx.merge(graph_elb)
         tx.commit()
-        for subnet in elb['Subnets']:
+        for subnet_id in elb['Subnets']:
             tx = graph.begin()
-            graphSubnet = next(graph.find(label="Subnet",property_key='subnetId',property_value=subnet))
-            rel = Relationship(graphElb, "BELONGS", graphSubnet)
+            selector = NodeSelector(graph)
+            graph_subnet = selector.select("Subnet", subnetId=subnet_id)
+            rel = Relationship(graph_elb, "BELONGS", graph_subnet)
             tx.create(rel)
             tx.commit()
 
         for instance in elb["Instances"]:
             try:
                 tx = graph.begin()
-                graphInstance = next(graph.find(label="EC2",property_key='instanceId',property_value=instance['InstanceId']))
-                rel = Relationship(graphInstance, "BELONGS", graphElb)
+                selector = NodeSelector(graph)
+                graph_instance = next(selector.select("EC2", instanceId=instance['InstanceId']))
+                rel = Relationship(graph_instance, "BELONGS", graph_elb)
                 tx.create(rel)
                 tx.commit()
             except:
                 pass
 
+
 def create_alb():
     albs = elbv2.describe_load_balancers()['LoadBalancers']
     for alb in albs:
         tx = graph.begin()
-        graphAlb = Node("ALB", name=alb['LoadBalancerName'])
-        tx.merge(graphAlb)
+        graph_alb = Node("ALB", name=alb['LoadBalancerName'])
+        tx.merge(graph_alb)
         tx.commit()
-        albArn = alb['LoadBalancerArn']
+        alb_arn = alb['LoadBalancerArn']
         for subnet in alb['AvailabilityZones']:
             tx = graph.begin()
-            graphSubnet = next(graph.find(label="Subnet",property_key='subnetId',property_value=subnet['SubnetId']))
-            rel = Relationship(graphAlb, "BELONGS", graphSubnet)
+            selector = NodeSelector(graph)
+            graph_subnet = next(selector.select("Subnet", subnetId=subnet_id))
+            rel = Relationship(graph_alb, "BELONGS", graph_subnet)
             tx.create(rel)
             tx.commit()
 
-
-        tgs = elbv2.describe_target_groups(LoadBalancerArn=albArn)['TargetGroups']
+        tgs = elbv2.describe_target_groups(LoadBalancerArn=alb_arn)['TargetGroups']
         for tg in tgs:
-            tgArn = tg['TargetGroupArn']
-            targets = elbv2.describe_target_health(TargetGroupArn=tgArn)['TargetHealthDescriptions']
+            tg_arn = tg['TargetGroupArn']
+            targets = elbv2.describe_target_health(TargetGroupArn=tg_arn)['TargetHealthDescriptions']
             tx = graph.begin()
-            graphTG = Node("Target Group", name=tg['TargetGroupName'])
-            tx.merge(graphTG)
-            rel = Relationship(graphTG, "BELONGS", graphAlb)
+            graph_tg = Node("Target Group", name=tg['TargetGroupName'])
+            tx.merge(graph_tg)
+            rel = Relationship(graph_tg, "BELONGS", graph_alb)
             tx.create(rel)
             tx.commit()
             for target in targets:
                 try:
                     tx = graph.begin()
-                    graphInstance = next(graph.find(label="EC2",property_key='instanceId',property_value=target['Target']['Id']))
-                    rel = Relationship(graphInstance, "BELONGS", graphTG)
+                    selector = NodeSelector(graph)
+                    graph_instance = next(selector.select("EC2", instanceId=target['Target']['Id']))
+                    rel = Relationship(graph_instance, "BELONGS", graph_tg)
                     tx.create(rel)
                     tx.commit()
                 except:
@@ -177,141 +192,155 @@ def create_alb():
         for instance in alb["Instances"]:
             try:
                 tx = graph.begin()
-                graphInstance = next(graph.find(label="EC2",property_key='instanceId',property_value=instance['InstanceId']))
-                rel = Relationship(graphInstance, "BELONGS", graphAlb)
+                selector = NodeSelector(graph)
+                graph_instance = next(selector.select("EC2", instanceId=instance['InstanceId']))
+                rel = Relationship(graph_instance, "BELONGS", graph_alb)
                 tx.create(rel)
                 tx.commit()
             except:
                 pass
+
 
 def create_lambda():
     try:
         lambdas = lambdaFunctions.list_functions()['Functions']
         for l in lambdas:
             tx = graph.begin()
-            graphLambda = Node("Lambda", name=l['FunctionName'])
-            tx.merge(graphLambda)
+            graph_lambda = Node("Lambda", name=l['FunctionName'])
+            tx.merge(graph_lambda)
             tx.commit()
     except botocore.exceptions.EndpointConnectionError as e:
-        global hasLambda
-        hasLambda = False
+        global has_lambda
+        has_lambda = False
+
 
 def create_sg():
-    securityGroups = ec2.describe_security_groups()
-    for sg in securityGroups['SecurityGroups']:
+    security_groups = ec2.describe_security_groups()
+    for sg in security_groups['SecurityGroups']:
         tx = graph.begin()
-        graphSg = Node("SecurityGroup", securityGroupId=sg['GroupId'], name=sg['GroupName'])
-        tx.merge(graphSg)
+        graph_sg = Node("SecurityGroup", securityGroupId=sg['GroupId'], name=sg['GroupName'])
+        tx.merge(graph_sg)
         tx.commit()
 
+
 def create_dynamodb():
-    dynamoTables = dynamodb.list_tables()['TableNames']
-    for tableName in dynamoTables:
-        tableInfo = dynamodb.describe_table(TableName=tableName)['Table']
+    dynamo_tables = dynamodb.list_tables()['TableNames']
+    for table_name in dynamo_tables:
+        table_info = dynamodb.describe_table(TableName=table_name)['Table']
         tx = graph.begin()
-        graphTable = Node("DynamoDB", name=tableName, write_capacity=tableInfo['ProvisionedThroughput']['WriteCapacityUnits'], read_capacity=tableInfo['ProvisionedThroughput']['ReadCapacityUnits'])
-        tx.merge(graphTable)
+        graph_table = Node("DynamoDB", name=table_name,
+                          write_capacity=table_info['ProvisionedThroughput']['WriteCapacityUnits'],
+                          read_capacity=table_info['ProvisionedThroughput']['ReadCapacityUnits'])
+        tx.merge(graph_table)
         tx.commit()
+
 
 def create_relationships():
     try:
-        securityGroups = ec2.describe_security_groups()
-
-        for sg in securityGroups['SecurityGroups']:
-            graphSg = next(graph.find(label="SecurityGroup",property_key='securityGroupId',property_value=sg['GroupId']))
-            ingressRules = sg['IpPermissions']
-            for rule in ingressRules:
-                if (rule['UserIdGroupPairs'] != []):
+        security_groups = ec2.describe_security_groups()
+        for sg in security_groups['SecurityGroups']:
+            selector = NodeSelector(graph)
+            graph_sg = next(selector.select("SecurityGroup", securityGroupId=sg['GroupId']))
+            ingress_rules = sg['IpPermissions']
+            for rule in ingress_rules:
+                if rule['UserIdGroupPairs'] != []:
                     for group in rule['UserIdGroupPairs']:
                         tx = graph.begin()
-                        graphFromSg = next(graph.find(label="SecurityGroup",property_key='securityGroupId',property_value=group['GroupId']))
+                        graph_from_sg = next(graph.find(label="SecurityGroup", property_key='securityGroupId',
+                                                      property_value=group['GroupId']))
                         if rule['IpProtocol'] == '-1':
                             protocol = 'All'
-                            portRange = '0 - 65535'
+                            port_range = '0 - 65535'
                         else:
                             protocol = rule['IpProtocol']
                             if rule['FromPort'] == rule['ToPort']:
-                                portRange = rule['FromPort']
+                                port_range = rule['FromPort']
                             else:
-                                portRange = "%d - %d" %(rule['FromPort'], rule['ToPort'])
-                        rel = Relationship(graphFromSg, "CONNECTS", graphSg, protocol=protocol,port=portRange)
+                                port_range = "%d - %d" % (rule['FromPort'], rule['ToPort'])
+                        rel = Relationship(graph_from_sg, "CONNECTS", graph_sg, protocol=protocol, port=port_range)
                         tx.create(rel)
                         tx.commit()
-                if (rule['IpRanges'] != []):
+                if rule['IpRanges']:
                     for cidr in rule['IpRanges']:
                         tx = graph.begin()
                         try:
-                            graphCidr = next(graph.find(label="IP",property_key='cidr',property_value=cidr['CidrIp']))
+                            selector = NodeSelector(graph)
+                            graph_cidr = next(selector.select("IP", cidr=cidr['CidrIp']))
                         except:
-                            graphCidr = Node("IP", cidr=cidr['CidrIp'])
-                            tx.create(graphCidr)
+                            graph_cidr = Node("IP", cidr=cidr['CidrIp'])
+                            tx.create(graph_cidr)
                         if rule['IpProtocol'] == '-1':
                             protocol = 'All'
-                            portRange = '0 - 65535'
+                            port_range = '0 - 65535'
                         else:
                             protocol = rule['IpProtocol']
                             if rule['FromPort'] == rule['ToPort']:
-                                portRange = rule['FromPort']
+                                port_range = rule['FromPort']
                             else:
-                                portRange = "%d - %d" %(rule['FromPort'], rule['ToPort'])
-                        rel = Relationship(graphCidr, "CONNECTS", graphSg, protocol=protocol,port=portRange)
+                                port_range = "%d - %d" % (rule['FromPort'], rule['ToPort'])
+                        rel = Relationship(graph_cidr, "CONNECTS", graph_sg, protocol=protocol, port=port_range)
                         tx.create(rel)
                         tx.commit()
 
-            instances = ec2.describe_instances(Filters=[{'Name': 'instance.group-id','Values':[sg['GroupId']]}])
-            if instances['Reservations'] == []:
+            instances = ec2.describe_instances(Filters=[{'Name': 'instance.group-id', 'Values': [sg['GroupId']]}])
+            if not instances['Reservations']:
                 pass
             else:
                 for instance in instances['Reservations']:
                     tx = graph.begin()
-                    instanceId = instance['Instances'][0]['InstanceId']
-                    graphEc2 = next(graph.find(label="EC2",property_key='instanceId',property_value=instanceId))
-                    rel = Relationship(graphEc2, "BELONGS", graphSg)
+                    instance_id = instance['Instances'][0]['InstanceId']
+                    selector = NodeSelector(graph)
+                    graph_ec2 = next(selector.select("EC2", instanceId=instance_id))
+                    rel = Relationship(graph_ec2, "BELONGS", graph_sg)
                     tx.create(rel)
                     tx.commit()
 
             databases = rds.describe_db_instances()['DBInstances']
             for db in databases:
-                dbSgs = db['VpcSecurityGroups']
-                for dbSg in dbSgs:
-                    if (dbSg['VpcSecurityGroupId'] == sg['GroupId']):
+                db_sgs = db['VpcSecurityGroups']
+                for db_sg in db_sgs:
+                    if (db_sg['VpcSecurityGroupId'] == sg['GroupId']):
                         tx = graph.begin()
-                        graphRds = next(graph.find(label="RDS",property_key='rdsId',property_value=db['DBInstanceIdentifier']))
-                        rel = Relationship(graphRds, "BELONGS", graphSg)
+                        selector = NodeSelector(graph)
+                        graph_rds = next(selector.select("RDS", rdsId=db['DBInstanceIdentifier']))
+                        rel = Relationship(graph_rds, "BELONGS", graph_sg)
                         tx.create(rel)
                         tx.commit()
 
             elcs = elasticache.describe_cache_clusters()['CacheClusters']
             for elc in elcs:
-                elcSgs = elc['SecurityGroups']
-                for elcSg in elcSgs:
-                    if (elcSg['SecurityGroupId'] == sg['GroupId']):
+                elc_sgs = elc['SecurityGroups']
+                for elc_sg in elc_sgs:
+                    if (elc_sg['SecurityGroupId'] == sg['GroupId']):
                         tx = graph.begin()
-                        graphElc = next(graph.find(label="ElastiCache",property_key='elcId',property_value=elc['CacheClusterId']))
-                        rel = Relationship(graphElc, "BELONGS", graphSg)
+                        selector = NodeSelector(graph)
+                        graph_elc = next(selector.select("ElastiCache", elcId=elc['CacheClusterId']))
+                        rel = Relationship(graph_elc, "BELONGS", graph_sg)
                         tx.create(rel)
                         tx.commit()
 
             elbs = loadbalancer.describe_load_balancers()['LoadBalancerDescriptions']
             for elb in elbs:
-                elbSgs = elb['SecurityGroups']
-                for elbSg in elbSgs:
-                    if (elbSg == sg['GroupId']):
+                elb_sgs = elb['SecurityGroups']
+                for elb_sg in elb_sgs:
+                    if (elb_sg == sg['GroupId']):
                         tx = graph.begin()
-                        graphElb = next(graph.find(label="ELB",property_key='name',property_value=elb['LoadBalancerName']))
-                        rel = Relationship(graphElb, "BELONGS", graphSg)
+                        selector = NodeSelector(graph)
+                        graph_elb = next(selector.select("ELB", name=elb['LoadBalancerName']))
+                        rel = Relationship(graph_elb, "BELONGS", graph_sg)
                         tx.create(rel)
                         tx.commit()
 
-            if (hasLambda):
+            if (has_lambda):
                 lambdas = lambdaFunctions.list_functions()['Functions']
                 for l in lambdas:
-                    if (l.__contains__('VpcConfig') and l['VpcConfig'] != []):
-                        for lambdaSg in l['VpcConfig']['SecurityGroupIds']:
-                            if (lambdaSg == sg['GroupId']):
+                    if l.__contains__('VpcConfig') and l['VpcConfig'] != []:
+                        for lambda_sg in l['VpcConfig']['SecurityGroupIds']:
+                            if lambda_sg == sg['GroupId']:
                                 tx = graph.begin()
-                                graphLambda = next(graph.find(label="Lambda",property_key='name',property_value=l['FunctionName']))
-                                rel = Relationship(graphLambda, "BELONGS", graphSg)
+                                selector = NodeSelector(graph)
+                                graph_lambda = next(selector.select("Lambda", name=l['FunctionName']))
+                                rel = Relationship(graph_lambda, "BELONGS", graph_sg)
                                 tx.create(rel)
                                 tx.commit()
     except:
@@ -330,10 +359,10 @@ for region in regions:
     lambdaFunctions = boto3.client('lambda', region_name=region)
     dynamodb = boto3.client('dynamodb', region_name=region)
 
-    tx = graph.begin()
+    audit = graph.begin()
     graphRegion = Node("Region", name=region)
-    tx.merge(graphRegion)
-    tx.commit()
+    audit.merge(graphRegion)
+    audit.commit()
 
     create_vpc(graphRegion)
     create_sg()
