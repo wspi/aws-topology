@@ -1,0 +1,5 @@
+##docker-compose.yml
+neo4j:
+  image: neo4j:latest
+  ports:
+   - "17474:7474"
