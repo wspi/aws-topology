@@ -46,3 +46,8 @@ To get all nodes of type EC2 that connects to an specific RDS (does not check po
 MATCH (a:EC2)-[:BELONGS]->(b:SecurityGroup)-[:CONNECTS]->(c:SecurityGroup)<-[:BELONGS]-(d:RDS {rdsId:'rds-identifier'})
 RETURN a,b,c,d
 ```
+To delete all nodes and relationships
+```
+MATCH (n)
+DETACH DELETE n
+```
