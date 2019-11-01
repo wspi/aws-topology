@@ -132,13 +132,13 @@ def create_ec2():
                                                    property_value=instance['SubnetId']))
                     rel = Relationship(graph_ec2, "BELONGS", graph_subnet)
                     tx.create(rel)
-                    graph_eip = graph.find_one(label="EIP",
-                                                property_key='NetworkInterfaceId',
-                                                property_value=network_interface_id)
-                    if graph_eip is not None:
-                        rel = Relationship(graph_eip, "ASSOCIATION", graph_ec2)
-                        tx.create(rel)
-                        check_key(instance['NetworkInterfaces'][0], 'PublicIp')
+                    # graph_eip = graph.find_one(label="EIP",
+                    #                             property_key='NetworkInterfaceId',
+                    #                             property_value=network_interface_id)
+                    # if graph_eip is not None:
+                    #     rel = Relationship(graph_eip, "ASSOCIATION", graph_ec2)
+                    #     tx.create(rel)
+                    #     check_key(instance['NetworkInterfaces'][0], 'PublicIp')
                 tx.commit()
 
 
@@ -288,7 +288,7 @@ def create_sg():
     security_groups = ec2.describe_security_groups()
     for sg in security_groups['SecurityGroups']:
         tx = graph.begin()
-        graph_sg = Node("SecurityGroup", securityGroupId=sg['GroupId'], name=sg['GroupName'])
+        graph_sg = Node("SecurityGroup", securityGroupId=sg['GroupId'], name=sg['GroupName'], VpcId=sg['VpcId'])
         tx.merge(graph_sg)
         tx.commit()
 
@@ -324,7 +324,7 @@ def create_sg_relationships():
                                 port_range = rule['FromPort']
                             else:
                                 port_range = "%d - %d" %(rule['FromPort'], rule['ToPort'])
-                        rel = Relationship(graph_from_sg, "CONNECTS", graph_sg, protocol=protocol,port=port_range)
+                        rel = Relationship(graph_from_sg, "ATTACHED", graph_sg, protocol=protocol,port=port_range)
                         tx.create(rel)
                         tx.commit()
                 if rule['IpRanges']:
@@ -344,7 +344,7 @@ def create_sg_relationships():
                                 port_range = rule['FromPort']
                             else:
                                 port_range = "%d - %d" %(rule['FromPort'], rule['ToPort'])
-                        rel = Relationship(graph_cidr, "CONNECTS", graph_sg, protocol=protocol,port=port_range)
+                        rel = Relationship(graph_cidr, "ATTACHED", graph_sg, protocol=protocol,port=port_range)
                         tx.create(rel)
                         tx.commit()
 
@@ -356,7 +356,7 @@ def create_sg_relationships():
                     tx = graph.begin()
                     instance_id = instance['Instances'][0]['InstanceId']
                     graph_ec2 = next(graph.find(label="EC2",property_key='instanceId',property_value=instance_id))
-                    rel = Relationship(graph_ec2, "BELONGS", graph_sg)
+                    rel = Relationship(graph_ec2, "ATTACHED", graph_sg)
                     tx.create(rel)
                     tx.commit()
 
@@ -367,7 +367,7 @@ def create_sg_relationships():
                     if (db_sg['VpcSecurityGroupId'] == sg['GroupId']):
                         tx = graph.begin()
                         graph_rds = next(graph.find(label="RDS",property_key='rdsId',property_value=db['DBInstanceIdentifier']))
-                        rel = Relationship(graph_rds, "BELONGS", graph_sg)
+                        rel = Relationship(graph_rds, "ATTACHED", graph_sg)
                         tx.create(rel)
                         tx.commit()
 
@@ -378,7 +378,7 @@ def create_sg_relationships():
                     if (elc_sg['SecurityGroupId'] == sg['GroupId']):
                         tx = graph.begin()
                         graph_elc = next(graph.find(label="ElastiCache",property_key='elcId',property_value=elc['CacheClusterId']))
-                        rel = Relationship(graph_elc, "BELONGS", graph_sg)
+                        rel = Relationship(graph_elc, "ATTACHED", graph_sg)
                         tx.create(rel)
                         tx.commit()
 
@@ -438,6 +438,7 @@ for region in regions:
     create_elb()
     create_alb()
     create_elc()
-    create_lambda()
+    if (has_lambda):
+        create_lambda()
     create_dynamodb()
     create_sg_relationships()
