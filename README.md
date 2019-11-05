@@ -46,6 +46,16 @@ To get all nodes of type EC2 that connects to an specific RDS (does not check po
 MATCH (a:EC2)-[:BELONGS]->(b:SecurityGroup)-[:CONNECTS]->(c:SecurityGroup)<-[:BELONGS]-(d:RDS {rdsId:'rds-identifier'})
 RETURN a,b,c,d
 ```
+
+To get all nodes of type EC2 showing the subnet, vpc and region they belong to
+```
+MATCH (a:EC2)-[:BELONGS]->(b:Subnet)-[:BELONGS]->(c:VPC)-[:BELONGS]->(d:Region)
+RETURN a,b,c,d
+```
+To list all EIPS without associationa
+```
+MATCH (o:EIP) WHERE NOT (o.AssociationId) contains "eipassoc-" RETURN o
+```
 To delete all nodes and relationships
 ```
 MATCH (n)
