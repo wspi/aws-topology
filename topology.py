@@ -197,7 +197,7 @@ def create_alb():
         for subnet in alb['AvailabilityZones']:
             Graph = graph.begin()
             selector = NodeSelector(graph)
-            graph_subnet = next(selector.select("Subnet", subnetId=subnet_id))
+            graph_subnet = selector.select("Subnet", subnetId=subnet['SubnetId'])
             rel = Relationship(graph_alb, "BELONGS", graph_subnet)
             Graph.create(rel)
             Graph.commit()
@@ -225,16 +225,16 @@ def create_alb():
         
         # Comment out if issues
         
-        for instance in alb["Instances"]:
-            try:
-                Graph = graph.begin()
-                selector = NodeSelector(graph)
-                graph_instance = next(selector.select("EC2", instanceId=instance['InstanceId']))
-                rel = Relationship(graph_instance, "BELONGS", graph_alb)
-                Graph.create(rel)
-                Graph.commit()
-            except:
-                pass
+        # for instance in alb["Instances"]:
+        #     try:
+        #         Graph = graph.begin()
+        #         selector = NodeSelector(graph)
+        #         graph_instance = next(selector.select("EC2", instanceId=instance['InstanceId']))
+        #         rel = Relationship(graph_instance, "BELONGS", graph_alb)
+        #         Graph.create(rel)
+        #         Graph.commit()
+        #     except:
+        #         pass
 
 
 def create_lambda():
@@ -404,11 +404,11 @@ for region in regions:
     
     create_vpc(graphRegion)
     create_ec2()
-    # create_sg()
-    # create_rds(graphRegion)
-    # create_elb(graphRegion)
-    # create_alb(graphRegion)
-    # create_elc(graphRegion)
-    # create_lambda(graphRegion)
-    # create_dynamodb(graphRegion)
-    # create_relationships()
+    create_sg()
+    create_rds()
+    create_elb()
+    create_alb()
+    create_elc()
+    create_lambda()
+    create_dynamodb()
+    create_relationships()
