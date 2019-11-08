@@ -27,7 +27,7 @@ def find_tags(structure):
 
 
 def find_node(**kwargs):
-     return graph.find_one(**kwargs)
+    return graph.find_one(**kwargs)
 
 
 def create_node(args, **kwargs):
@@ -38,9 +38,9 @@ def create_node(args, **kwargs):
     return graph_node
 
 
-def create_relationship(source, type, destination):
+def create_relationship(source, verb, destination):
     tx = graph.begin()
-    relationship = Relationship(source, type, destination)
+    relationship = Relationship(source, verb, destination)
     tx.merge(relationship)
     tx.commit()
     return relationship
@@ -54,15 +54,12 @@ def create_subnets(graph_region, vpc_id):
     else:
         for subnet in subnets['Subnets']:
             graph_az = create_node("AvailabilityZone", name=subnet['AvailabilityZone'],
-                        AvailabilityZoneId=subnet['AvailabilityZoneId'])
+                                   AvailabilityZoneId=subnet['AvailabilityZoneId'])
             name = find_tags(subnet)
-
             graph_subnet = create_node("Subnet", SubnetId=subnet['SubnetId'], name=name, az=subnet['AvailabilityZone'],
-                                cidr=subnet['CidrBlock'], VpcId=subnet['VpcId'])
-
+                                       cidr=subnet['CidrBlock'], VpcId=subnet['VpcId'])
             create_relationship(graph_subnet, "BELONGS", graph_az)
             create_relationship(graph_az, "BELONGS", graph_region)
-
             subnets_array.append(graph_subnet)
     return subnets_array
 
@@ -90,12 +87,12 @@ def create_nat_gws(vpc_id):
         for ngw in ngws['NatGateways']:
             name_tag = find_tags(ngw)
             if name_tag is '':
-                name_tag = ngwId=ngw['NatGatewayId']
-
+                name_tag = ngw['NatGatewayId']
             graph_ngw = create_node("NATGW", ngwId=ngw['NatGatewayId'], SubnetId=ngw['SubnetId'], name=name_tag)
             ngws_array.append(graph_ngw)
-            find_eip = find_node(label="EIP", property_key='AllocationId', property_value=ngw['NatGatewayAddresses'][0]['AllocationId'])
-            relationship = create_relationship(find_eip, "BELONGS", graph_ngw)
+            find_eip = find_node(label="EIP", property_key='AllocationId',
+                                 property_value=ngw['NatGatewayAddresses'][0]['AllocationId'])
+            create_relationship(find_eip, "BELONGS", graph_ngw)
     return ngws_array
 
 
@@ -109,17 +106,15 @@ def create_vpc(graph_region):
             subnets = create_subnets(graph_region, vpc['VpcId'])
             igws = create_igws(vpc['VpcId'])
             ngws = create_nat_gws(vpc['VpcId'])
-
             graph_vpc = create_node("VPC", vpcId=vpc['VpcId'], name=name, cidr=vpc['CidrBlock'])
-
-            relationship = create_relationship(graph_vpc, "BELONGS", graph_region)
+            create_relationship(graph_vpc, "BELONGS", graph_region)
             for subnet in subnets:
-                relationship = create_relationship(subnet, "BELONGS", graph_vpc)
+                create_relationship(subnet, "BELONGS", graph_vpc)
             for igw in igws:
-                relationship = create_relationship(igw, "ATTACHED", graph_vpc)
+                create_relationship(igw, "ATTACHED", graph_vpc)
             for ngw in ngws:
                 graph_subnet = find_node(label="Subnet", property_key='SubnetId', property_value=ngw['SubnetId'])
-                relationship = create_relationship(ngw, "BELONGS", graph_subnet)
+                create_relationship(ngw, "BELONGS", graph_subnet)
 
 
 def create_ec2():
@@ -133,50 +128,44 @@ def create_ec2():
                     name = find_tags(instance)
                     network_interface_id = instance['NetworkInterfaces'][0]['NetworkInterfaceId']
                     graph_ec2 = create_node("EC2", InstanceId=instance['InstanceId'], name=name,
-                                     state=instance['State']['Name'], SubnetId=instance['SubnetId'],
-                                     NetworkInterfaceId=network_interface_id, type=instance['InstanceType']
-                                     )
-                    graph_subnet = find_node(label="Subnet", property_key='SubnetId', property_value=instance['SubnetId'])
-                    relationship = create_relationship(graph_ec2, "ATTACHED", graph_subnet)
-                    graph_eip = find_node(label="EIP", property_key='NetworkInterfaceId', property_value=network_interface_id)
+                                            state=instance['State']['Name'], SubnetId=instance['SubnetId'],
+                                            NetworkInterfaceId=network_interface_id, type=instance['InstanceType']
+                                            )
+                    graph_subnet = find_node(label="Subnet", property_key='SubnetId',
+                                             property_value=instance['SubnetId'])
+                    create_relationship(graph_ec2, "ATTACHED", graph_subnet)
+                    graph_eip = find_node(label="EIP", property_key='NetworkInterfaceId',
+                                          property_value=network_interface_id)
                     if graph_eip is not None:
-                        rel = create_relationship(graph_eip, "ASSOCIATION", graph_ec2)
-                    #     tx.merge(rel)
-                    #     check_key(instance['NetworkInterfaces'][0], 'PublicIp')
+                        create_relationship(graph_eip, "ASSOCIATION", graph_ec2)
 
 
 def create_rds():
     databases = rds.describe_db_instances()['DBInstances']
     for db in databases:
-        graph_rds = create_node("RDS", rdsId=db['DBInstanceIdentifier'], DBInstanceClass=db['DBInstanceClass'])
+        create_node("RDS", rdsId=db['DBInstanceIdentifier'], DBInstanceClass=db['DBInstanceClass'])
 
 
 def create_elc():
     elcs = elasticache.describe_cache_clusters()['CacheClusters']
     for elc in elcs:
-        graph_elc = create_node("ElastiCache", elcId=elc['CacheClusterId'])
+        create_node("ElastiCache", elcId=elc['CacheClusterId'])
 
 
 def create_elb():
     elbs = loadbalancer.describe_load_balancers()['LoadBalancerDescriptions']
     for elb in elbs:
-        graph_elb = create_node("ELB",
-                         name=elb['LoadBalancerName'],
-                         CanonicalHostedZoneName=elb['CanonicalHostedZoneName']
-                         )
+        graph_elb = create_node("ELB", name=elb['LoadBalancerName'],
+                                CanonicalHostedZoneName=elb['CanonicalHostedZoneName']
+                                )
         for subnet in elb['Subnets']:
-            tx = graph.begin()
             graph_subnet = find_node(label="Subnet", property_key='SubnetId', property_value=subnet)
-            relationship = create_relationship(graph_elb, "BELONGS", graph_subnet)
-
+            create_relationship(graph_elb, "BELONGS", graph_subnet)
         for instance in elb["Instances"]:
             try:
-                tx = graph.begin()
-                graph_instance = find_node(label="EC2",
-                                                property_key='InstanceId',
-                                                property_value=instance['InstanceId']
-                                                )
-                relationship = create_relationship(graph_instance, "BELONGS", graph_elb)
+                graph_instance = find_node(label="EC2", property_key='InstanceId', property_value=instance['InstanceId']
+                                           )
+                create_relationship(graph_instance, "BELONGS", graph_elb)
             except:
                 pass
 
@@ -185,60 +174,48 @@ def create_eip():
     eips = ec2.describe_addresses()
     for eip in eips['Addresses']:
         network_interface_id = check_key(eip, 'NetworkInterfaceId')
-        graph_eip = create_node("EIP",
-                         AllocationId=eip['AllocationId'],
-                         PublicIp=eip['PublicIp'],
-                         Domain=eip['Domain'],
-                         PublicIpv4Pool=eip['PublicIpv4Pool'],
-                         AssociationId=check_key(eip, 'AssociationId'),
-                         NetworkInterfaceId=network_interface_id
-                         )
-        # if network_interface_id != "Unknown":
-        #     graph_interface = find_node(label="Interfaces",
-        #                                       property_key='NetworkInterfaceId',
-        #                                       property_value=network_interface_id
-        #                                       )
-        #     relationship = create_relationship(graph_eip, "ATTACHED", graph_interface)
+        create_node("EIP", AllocationId=eip['AllocationId'], PublicIp=eip['PublicIp'], Domain=eip['Domain'],
+                    PublicIpv4Pool=eip['PublicIpv4Pool'], AssociationId=check_key(eip, 'AssociationId'),
+                    NetworkInterfaceId=network_interface_id
+                    )
 
 
 def create_network_interfaces():
     interfaces = ec2.describe_network_interfaces()
     for interface in interfaces['NetworkInterfaces']:
-        graph_interfaces = create_node("Interfaces",
-                                Description=interface['Description'],
-                                RequesterId=check_key(interface, 'RequesterId'),
-                                NetworkInterfaceId=interface['NetworkInterfaceId']
-                                )
+        create_node("Interfaces", Description=interface['Description'], RequesterId=check_key(interface, 'RequesterId'),
+                    NetworkInterfaceId=interface['NetworkInterfaceId']
+                    )
 
 
 def create_alb():
     albs = elbv2.describe_load_balancers()['LoadBalancers']
     for alb in albs:
         graph_alb = create_node("ALB", name=alb['LoadBalancerName'], dnsname=alb['DNSName'], scheme=alb['Scheme'],
-                         VpcId=alb['VpcId'])
+                                VpcId=alb['VpcId'])
         alb_arn = alb['LoadBalancerArn']
         for azs in alb['AvailabilityZones']:
             graph_subnet = find_node(label="Subnet", property_key='SubnetId', property_value=azs['SubnetId'])
-            rel = create_relationship(graph_alb, "ATTACHED", graph_subnet)
-            # graph_zone = find_node(label="Subnet", property_key='ZoneName', property_value=azs['ZoneName'])
+            create_relationship(graph_alb, "ATTACHED", graph_subnet)
 
         tgs = elbv2.describe_target_groups(LoadBalancerArn=alb_arn)['TargetGroups']
         for tg in tgs:
             tg_arn = tg['TargetGroupArn']
             targets = elbv2.describe_target_health(TargetGroupArn=tg_arn)['TargetHealthDescriptions']
             graph_tg = create_node("Target Group", name=tg['TargetGroupName'])
-            rel = create_relationship(graph_tg, "ATTACHED", graph_alb)
+            create_relationship(graph_tg, "ATTACHED", graph_alb)
             for target in targets:
                 try:
-                    graph_instance = find_node(label="EC2", property_key='instanceId', property_value=target['Target']['Id'])
-                    rel = create_relationship(graph_instance, "ATTACHED", graph_tg)
+                    graph_instance = find_node(label="EC2", property_key='instanceId',
+                                               property_value=target['Target']['Id'])
+                    create_relationship(graph_instance, "ATTACHED", graph_tg)
                 except:
                     pass
 
         for instance in alb["AvailabilityZones"]:
             try:
-                graph_subnet = find_node(label="Subnet",property_key='SubnetId', property_value=instance['SubnetId'])
-                rel = create_relationship(graph_alb, "BELONGS", graph_subnet)
+                graph_subnet = find_node(label="Subnet", property_key='SubnetId', property_value=instance['SubnetId'])
+                create_relationship(graph_alb, "BELONGS", graph_subnet)
             except:
                 pass
 
@@ -258,15 +235,16 @@ def create_sg():
     for sg in security_groups['SecurityGroups']:
         graph_sg = create_node("SecurityGroup", securityGroupId=sg['GroupId'], name=sg['GroupName'], VpcId=sg['VpcId'])
         graph_vpc = find_node(label="Subnet", property_key='VpcId', property_value=sg['VpcId'])
-        rel = create_relationship(graph_sg, "BELONGS", graph_vpc)
+        create_relationship(graph_sg, "BELONGS", graph_vpc)
+
 
 def create_dynamodb():
     dynamo_tables = dynamodb.list_tables()['TableNames']
     for tableName in dynamo_tables:
         table_info = dynamodb.describe_table(TableName=tableName)['Table']
-        graph_table = create_node("DynamoDB", name=tableName,
-                           write_capacity=table_info['ProvisionedThroughput']['WriteCapacityUnits'],
-                           read_capacity=table_info['ProvisionedThroughput']['ReadCapacityUnits'])
+        create_node("DynamoDB", name=tableName,
+                                  write_capacity=table_info['ProvisionedThroughput']['WriteCapacityUnits'],
+                                  read_capacity=table_info['ProvisionedThroughput']['ReadCapacityUnits'])
 
 
 def create_sg_relationships():
@@ -279,9 +257,9 @@ def create_sg_relationships():
             for rule in ingress_rules:
                 if rule['UserIdGroupPairs']:
                     for group in rule['UserIdGroupPairs']:
-                        tx = graph.begin()
+
                         graph_from_sg = find_node(label="SecurityGroup", property_key='securityGroupId',
-                                                        property_value=group['GroupId'])
+                                                  property_value=group['GroupId'])
                         if rule['IpProtocol'] == '-1':
                             protocol = 'All'
                             port_range = '0 - 65535'
@@ -291,14 +269,13 @@ def create_sg_relationships():
                                 port_range = rule['FromPort']
                             else:
                                 port_range = "%d - %d" % (rule['FromPort'], rule['ToPort'])
-                        rel = create_relationship(graph_from_sg, "ATTACHED", graph_sg, protocol=protocol, port=port_range)
+                        create_relationship(graph_from_sg, "ATTACHED", graph_sg, protocol=protocol, port=port_range)
                 if rule['IpRanges']:
                     for cidr in rule['IpRanges']:
-                        tx = graph.begin()
                         try:
                             graph_cidr = find_node(label="IP", property_key='cidr', property_value=cidr['CidrIp'])
                         except:
-                            graph_cidr =  create_node("IP", cidr=cidr['CidrIp'])
+                            graph_cidr = create_node("IP", cidr=cidr['CidrIp'])
                         if rule['IpProtocol'] == '-1':
                             protocol = 'All'
                             port_range = '0 - 65535'
@@ -315,26 +292,28 @@ def create_sg_relationships():
                 pass
             else:
                 for instance in instances['Reservations']:
-                    tx = graph.begin()
+
                     instance_id = instance['Instances'][0]['InstanceId']
                     graph_ec2 = find_node(label="EC2", property_key='instanceId', property_value=instance_id)
-                    rel = create_relationship(graph_ec2, "ATTACHED", graph_sg)
+                    create_relationship(graph_ec2, "ATTACHED", graph_sg)
 
             databases = rds.describe_db_instances()['DBInstances']
             for db in databases:
                 db_sgs = db['VpcSecurityGroups']
                 for db_sg in db_sgs:
                     if (db_sg['VpcSecurityGroupId'] == sg['GroupId']):
-                        graph_rds = find_node(label="RDS", property_key='rdsId', property_value=db['DBInstanceIdentifier'])
-                        rel = create_relationship(graph_rds, "ATTACHED", graph_sg)
+                        graph_rds = find_node(label="RDS", property_key='rdsId',
+                                              property_value=db['DBInstanceIdentifier'])
+                        create_relationship(graph_rds, "ATTACHED", graph_sg)
 
             elcs = elasticache.describe_cache_clusters()['CacheClusters']
             for elc in elcs:
                 elc_sgs = elc['SecurityGroups']
                 for elc_sg in elc_sgs:
                     if (elc_sg['SecurityGroupId'] == sg['GroupId']):
-                        graph_elc = find_node(label="ElastiCache", property_key='elcId', property_value=elc['CacheClusterId'])
-                        rel = create_relationship(graph_elc, "ATTACHED", graph_sg)
+                        graph_elc = find_node(label="ElastiCache", property_key='elcId',
+                                              property_value=elc['CacheClusterId'])
+                        create_relationship(graph_elc, "ATTACHED", graph_sg)
 
             elbs = loadbalancer.describe_load_balancers()['LoadBalancerDescriptions']
             for elb in elbs:
@@ -342,22 +321,21 @@ def create_sg_relationships():
                 for elb_sg in elb_sgs:
                     if (elb_sg == sg['GroupId']):
                         graph_elb = find_node(label="ELB", property_key='name', property_value=elb['LoadBalancerName'])
-                        rel = create_relationship(graph_elb, "ATTACHED", graph_sg)
-
+                        create_relationship(graph_elb, "ATTACHED", graph_sg)
             if (has_lambda):
                 lambdas = lambdaFunctions.list_functions()['Functions']
                 for l in lambdas:
                     if l.__contains__('VpcConfig') and l['VpcConfig'] != []:
                         for lambda_sg in l['VpcConfig']['SecurityGroupIds']:
                             if lambda_sg == sg['GroupId']:
-                                graph_lambda = find_node(label="Lambda", property_key='name', property_value=l['FunctionName'])
-                                rel = create_relationship(graph_lambda, "ATTACHED", graph_sg)
+                                graph_lambda = find_node(label="Lambda", property_key='name',
+                                                         property_value=l['FunctionName'])
+                                create_relationship(graph_lambda, "ATTACHED", graph_sg)
     except:
         pass
 
 
 graph = Graph(user="neo4j", password="letmein", host="localhost")
-graph.delete_all()
 
 has_lambda = False
 regions = ["eu-central-1", "eu-west-1", "eu-west-2", "eu-west-3", "eu-north-1"]
@@ -383,7 +361,7 @@ for region in regions:
     # create_network_interfaces()
 
     create_ec2()
-    # create_rds()
+    create_rds()
     create_elb()
     create_alb()
     create_elc()
