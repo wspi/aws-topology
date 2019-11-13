@@ -188,6 +188,77 @@ def create_network_interfaces():
                     )
 
 
+def get_topics(sns):
+    topics = sns.list_topics()
+    for topic in topics['Topics']:
+        topic_attributes = sns.get_topic_attributes(TopicArn=topic['TopicArn'])
+        create_node("Topic", DisplayName=topic_attributes['DisplayName'],
+                    TopicArn=topic_attributes['TopicArn'],
+                    Owner=topic_attributes['Owner'],
+                    DeliveryPolicy=topic_attributes['DeliveryPolicy'],
+                    EffectiveDeliveryPolicy=topic_attributes['EffectiveDeliveryPolicy'],
+                    SubscriptionsPending=topic_attributes['SubscriptionsPending'],
+                    SubscriptionsConfirmed=topic_attributes['SubscriptionsConfirmed']
+                    )
+
+
+def create_sns():
+    sns = boto3.client('sns', region_name=region)
+
+    # Potential verbs
+    #
+    # list_endpoints_by_platform_application
+    # list_phone_numbers_opted_out
+    # list_platform_applications
+    # list_subscriptions
+    # list_subscriptions_by_topic
+    # list_tags_for_resource
+    # list_topics
+    # https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/sns.html#SNS.Client.get_platform_application_attributes
+
+    get_topics(sns)
+    subscriptions = sns.list_subscriptions()
+    for subscription in subscriptions['PlatformApplications']:
+        graph_subscription = create_node("SNS_Subscriptions",
+                    SNS_SubscriptionArn=subscription['SNS_SubscriptionArn'],
+                    Owner=subscription['Owner'],
+                    Protocol=subscription['Protocol'],
+                    Endpoint=subscription['Endpoint'],
+                    TopicArn=subscription['TopicArn']
+                    )
+        graph_topic = find_node(label="Topic", property_key='TopicArn',
+                                 property_value=subscription['TopicArn'])
+        create_relationship(graph_subscription, "SUBSCRIBED", graph_topic)
+
+    platform_applications = sns.list_platform_applications()
+    for application in platform_applications['PlatformApplications']:
+        create_node("PlatformApplications",
+                    PlatformApplicationArn=application['PlatformApplicationArn'],
+                    Attributes=application['Attributes']
+                    )
+
+    try:
+        phone_numbers_opted_out = sns.list_phone_numbers_opted_out()
+    except sns.exceptions.AuthorizationErrorException as e:
+        if e.response['Error']['Code'] == 'AuthorizationError':
+            print("sns.list_phone_numbers_opted_out: " + e.response['Error']['Message'])
+        else:
+            print("Unexpected error: %s" % e)
+
+
+
+
+    for application in topics['Topics']:
+        endpoints_by_platform_application = sns.list_endpoints_by_platform_application(application)
+
+    tags_for_resource = sns.list_tags_for_resource()
+
+    for interface in interfaces['NetworkInterfaces']:
+        create_node("Interfaces", Description=interface['Description'], RequesterId=check_key(interface, 'RequesterId'),
+                    NetworkInterfaceId=interface['NetworkInterfaceId']
+                    )
+
+
 def create_alb():
     albs = elbv2.describe_load_balancers()['LoadBalancers']
     for alb in albs:
@@ -359,7 +430,8 @@ for region in regions:
     create_vpc(graph_region)
     create_sg()
     # create_network_interfaces()
-
+    create_sns()
+    # create_sqs()
     create_ec2()
     create_rds()
     create_elb()
