@@ -8,10 +8,10 @@
             }
 
             #viz {
-                width: 900px;
+                /*width: 1400px;*/
                 height: 900px;
                 border: 1px solid lightgray;
-                font: 22pt arial;
+                font: 24pt "Roboto Light";
             }
         </style>
     </head>
@@ -45,14 +45,19 @@
                         "caption": "name"
                     },
                     "Subnet": {
-                        "caption": "name"
+                        "caption": "cidr"
                     },
                     "IGW": {
                         "caption": "name"
                     },
                     "SecurityGroup": {
                         "caption": "name"
+                    },
+                    "Provider": {
+                        "caption": "name",
+                        "size": "80"
                     }
+
                 },
                 relationships: {
                     "BELONGS": {
@@ -67,8 +72,8 @@
                 },
                 arrows: true,
                 hierarchical_layout: true,
-                hierarchical_sort_method: "hubsize",
-                initial_cypher: "MATCH (n) WHERE n:EC2 OR n:VPC OR n:IP OR n:Region OR n:RDS OR n:Subnet OR n:IGW OR n:SecurityGroup OR n:AZ MATCH (n)-[r]-() RETURN n,r"
+                hierarchical_sort_method: "directed",
+                initial_cypher: "MATCH (n) WHERE n:Provider OR n:EC2 OR n:VPC OR n:IP OR n:Region OR n:RDS OR n:Subnet OR n:IGW OR n:SecurityGroup OR n:AZ MATCH (n)-[r]-() RETURN n,r"
             };
             viz = new NeoVis.default(config);
             viz.render();

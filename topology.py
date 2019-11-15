@@ -4,9 +4,9 @@ import botocore
 from py2neo import Graph, Node, Relationship, NodeSelector
 
 
-def check_key(dict, key):
-    if key in dict.keys():
-        return dict[key]
+def check_key(dictionary, key):
+    if key in dictionary.keys():
+        return dictionary[key]
     else:
         return "Unknown"
 
@@ -58,8 +58,9 @@ def create_subnets(graph_region, vpc_id):
             name = find_tags(subnet)
             graph_subnet = create_node("Subnet", SubnetId=subnet['SubnetId'], name=name, az=subnet['AvailabilityZone'],
                                        cidr=subnet['CidrBlock'], VpcId=subnet['VpcId'])
-            create_relationship(graph_subnet, "BELONGS", graph_az)
-            create_relationship(graph_az, "BELONGS", graph_region)
+            if graph_subnet is not None:
+                create_relationship(graph_subnet, "BELONGS", graph_az)
+                create_relationship(graph_az, "BELONGS", graph_region)
             subnets_array.append(graph_subnet)
     return subnets_array
 
@@ -92,7 +93,8 @@ def create_nat_gws(vpc_id):
             ngws_array.append(graph_ngw)
             find_eip = find_node(label="EIP", property_key='AllocationId',
                                  property_value=ngw['NatGatewayAddresses'][0]['AllocationId'])
-            create_relationship(find_eip, "BELONGS", graph_ngw)
+            if find_eip is not None:
+                create_relationship(find_eip, "BELONGS", graph_ngw)
     return ngws_array
 
 
@@ -133,7 +135,8 @@ def create_ec2():
                                             )
                     graph_subnet = find_node(label="Subnet", property_key='SubnetId',
                                              property_value=instance['SubnetId'])
-                    create_relationship(graph_ec2, "ATTACHED", graph_subnet)
+                    if graph_subnet is not None:
+                        create_relationship(graph_ec2, "ATTACHED", graph_subnet)
                     graph_eip = find_node(label="EIP", property_key='NetworkInterfaceId',
                                           property_value=network_interface_id)
                     if graph_eip is not None:
@@ -160,14 +163,12 @@ def create_elb():
                                 )
         for subnet in elb['Subnets']:
             graph_subnet = find_node(label="Subnet", property_key='SubnetId', property_value=subnet)
-            create_relationship(graph_elb, "BELONGS", graph_subnet)
+            if graph_subnet is not None:
+                create_relationship(graph_elb, "BELONGS", graph_subnet)
         for instance in elb["Instances"]:
-            try:
-                graph_instance = find_node(label="EC2", property_key='InstanceId', property_value=instance['InstanceId']
-                                           )
+            graph_instance = find_node(label="EC2", property_key='InstanceId', property_value=instance['InstanceId'])
+            if graph_instance is not None:
                 create_relationship(graph_instance, "BELONGS", graph_elb)
-            except:
-                pass
 
 
 def create_eip():
@@ -188,17 +189,16 @@ def create_network_interfaces():
                     )
 
 
-def get_topics(sns):
+def create_topics(sns):
     topics = sns.list_topics()
     for topic in topics['Topics']:
         topic_attributes = sns.get_topic_attributes(TopicArn=topic['TopicArn'])
-        create_node("Topic", DisplayName=topic_attributes['DisplayName'],
-                    TopicArn=topic_attributes['TopicArn'],
-                    Owner=topic_attributes['Owner'],
-                    DeliveryPolicy=topic_attributes['DeliveryPolicy'],
-                    EffectiveDeliveryPolicy=topic_attributes['EffectiveDeliveryPolicy'],
-                    SubscriptionsPending=topic_attributes['SubscriptionsPending'],
-                    SubscriptionsConfirmed=topic_attributes['SubscriptionsConfirmed']
+        create_node("Topic", Name=topic_attributes['Attributes']['DisplayName'],
+                    TopicArn=topic_attributes['Attributes']['TopicArn'],
+                    Owner=topic_attributes['Attributes']['Owner'],
+                    EffectiveDeliveryPolicy=topic_attributes['Attributes']['EffectiveDeliveryPolicy'],
+                    SubscriptionsPending=topic_attributes['Attributes']['SubscriptionsPending'],
+                    SubscriptionsConfirmed=topic_attributes['Attributes']['SubscriptionsConfirmed']
                     )
 
 
@@ -216,47 +216,48 @@ def create_sns():
     # list_topics
     # https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/sns.html#SNS.Client.get_platform_application_attributes
 
-    get_topics(sns)
+    create_topics(sns)
     subscriptions = sns.list_subscriptions()
-    for subscription in subscriptions['PlatformApplications']:
+    for subscription in subscriptions['Subscriptions']:
         graph_subscription = create_node("SNS_Subscriptions",
-                    SNS_SubscriptionArn=subscription['SNS_SubscriptionArn'],
-                    Owner=subscription['Owner'],
-                    Protocol=subscription['Protocol'],
-                    Endpoint=subscription['Endpoint'],
-                    TopicArn=subscription['TopicArn']
-                    )
+                                         Name=subscription['SubscriptionArn'],
+                                         SubscriptionArn=subscription['SubscriptionArn'],
+                                         Owner=subscription['Owner'],
+                                         Protocol=subscription['Protocol'],
+                                         Endpoint=subscription['Endpoint'],
+                                         TopicArn=subscription['TopicArn']
+                                         )
         graph_topic = find_node(label="Topic", property_key='TopicArn',
-                                 property_value=subscription['TopicArn'])
-        create_relationship(graph_subscription, "SUBSCRIBED", graph_topic)
+                                property_value=subscription['TopicArn'])
+        if graph_topic is not None:
+            create_relationship(graph_subscription, "SUBSCRIBED", graph_topic)
 
-    platform_applications = sns.list_platform_applications()
-    for application in platform_applications['PlatformApplications']:
-        create_node("PlatformApplications",
-                    PlatformApplicationArn=application['PlatformApplicationArn'],
-                    Attributes=application['Attributes']
-                    )
+    try:
+        platform_applications = sns.list_platform_applications()
+        for application in platform_applications['PlatformApplications']:
+            create_node("PlatformApplications",
+                        PlatformApplicationArn=application['PlatformApplicationArn'],
+                        Attributes=application['Attributes']
+                        )
+    # botocore.exceptions.ClientError: An error occurred (InvalidAction) when calling the ListPlatformApplications
+    # operation: Operation (ListPlatformApplications) is not supported in this region
+    except sns.exceptions.ClientError as e:
+        if e.response['Error']['Code'] == 'InvalidAction':
+            print("sns.list_platform_applications: " + e.response['Error']['Message'])
+        else:
+            print("Unexpected error: %s" % e)
 
     try:
         phone_numbers_opted_out = sns.list_phone_numbers_opted_out()
-    except sns.exceptions.AuthorizationErrorException as e:
+    except (sns.exceptions.ClientError, sns.exceptions.AuthorizationErrorException) as e:
         if e.response['Error']['Code'] == 'AuthorizationError':
+            print("sns.list_phone_numbers_opted_out: " + e.response['Error']['Message'])
+        elif e.response['Error']['Code'] == 'InvalidAction':
             print("sns.list_phone_numbers_opted_out: " + e.response['Error']['Message'])
         else:
             print("Unexpected error: %s" % e)
 
-
-
-
-    for application in topics['Topics']:
-        endpoints_by_platform_application = sns.list_endpoints_by_platform_application(application)
-
-    tags_for_resource = sns.list_tags_for_resource()
-
-    for interface in interfaces['NetworkInterfaces']:
-        create_node("Interfaces", Description=interface['Description'], RequesterId=check_key(interface, 'RequesterId'),
-                    NetworkInterfaceId=interface['NetworkInterfaceId']
-                    )
+    # tags_for_resource = sns.list_tags_for_resource()
 
 
 def create_alb():
@@ -267,7 +268,8 @@ def create_alb():
         alb_arn = alb['LoadBalancerArn']
         for azs in alb['AvailabilityZones']:
             graph_subnet = find_node(label="Subnet", property_key='SubnetId', property_value=azs['SubnetId'])
-            create_relationship(graph_alb, "ATTACHED", graph_subnet)
+            if graph_subnet is not None:
+                create_relationship(graph_alb, "ATTACHED", graph_subnet)
 
         tgs = elbv2.describe_target_groups(LoadBalancerArn=alb_arn)['TargetGroups']
         for tg in tgs:
@@ -276,19 +278,15 @@ def create_alb():
             graph_tg = create_node("Target Group", name=tg['TargetGroupName'])
             create_relationship(graph_tg, "ATTACHED", graph_alb)
             for target in targets:
-                try:
-                    graph_instance = find_node(label="EC2", property_key='instanceId',
-                                               property_value=target['Target']['Id'])
+                graph_instance = find_node(label="EC2", property_key='instanceId',
+                                           property_value=target['Target']['Id'])
+                if graph_instance is not None:
                     create_relationship(graph_instance, "ATTACHED", graph_tg)
-                except:
-                    pass
 
         for instance in alb["AvailabilityZones"]:
-            try:
-                graph_subnet = find_node(label="Subnet", property_key='SubnetId', property_value=instance['SubnetId'])
+            graph_subnet = find_node(label="Subnet", property_key='SubnetId', property_value=instance['SubnetId'])
+            if graph_subnet is not None:
                 create_relationship(graph_alb, "BELONGS", graph_subnet)
-            except:
-                pass
 
 
 def create_lambda():
@@ -306,7 +304,8 @@ def create_sg():
     for sg in security_groups['SecurityGroups']:
         graph_sg = create_node("SecurityGroup", securityGroupId=sg['GroupId'], name=sg['GroupName'], VpcId=sg['VpcId'])
         graph_vpc = find_node(label="Subnet", property_key='VpcId', property_value=sg['VpcId'])
-        create_relationship(graph_sg, "BELONGS", graph_vpc)
+        if graph_vpc is not None:
+            create_relationship(graph_sg, "BELONGS", graph_vpc)
 
 
 def create_dynamodb():
@@ -314,33 +313,32 @@ def create_dynamodb():
     for tableName in dynamo_tables:
         table_info = dynamodb.describe_table(TableName=tableName)['Table']
         create_node("DynamoDB", name=tableName,
-                                  write_capacity=table_info['ProvisionedThroughput']['WriteCapacityUnits'],
-                                  read_capacity=table_info['ProvisionedThroughput']['ReadCapacityUnits'])
+                    write_capacity=table_info['ProvisionedThroughput']['WriteCapacityUnits'],
+                    read_capacity=table_info['ProvisionedThroughput']['ReadCapacityUnits'])
 
 
 def create_sg_relationships():
-    try:
-        security_groups = ec2.describe_security_groups()
-
-        for sg in security_groups['SecurityGroups']:
-            graph_sg = find_node(label="SecurityGroup", property_key='securityGroupId', property_value=sg['GroupId'])
+    security_groups = ec2.describe_security_groups()
+    for sg in security_groups['SecurityGroups']:
+        graph_sg = find_node(label="SecurityGroup", property_key='securityGroupId', property_value=sg['GroupId'])
+        if graph_sg is not None:
             ingress_rules = sg['IpPermissions']
             for rule in ingress_rules:
                 if rule['UserIdGroupPairs']:
                     for group in rule['UserIdGroupPairs']:
-
                         graph_from_sg = find_node(label="SecurityGroup", property_key='securityGroupId',
                                                   property_value=group['GroupId'])
-                        if rule['IpProtocol'] == '-1':
-                            protocol = 'All'
-                            port_range = '0 - 65535'
-                        else:
-                            protocol = rule['IpProtocol']
-                            if rule['FromPort'] == rule['ToPort']:
-                                port_range = rule['FromPort']
+                        if graph_from_sg is not None:
+                            if rule['IpProtocol'] == '-1':
+                                protocol = 'All'
+                                port_range = '0 - 65535'
                             else:
-                                port_range = "%d - %d" % (rule['FromPort'], rule['ToPort'])
-                        create_relationship(graph_from_sg, "ATTACHED", graph_sg, protocol=protocol, port=port_range)
+                                protocol = rule['IpProtocol']
+                                if rule['FromPort'] == rule['ToPort']:
+                                    port_range = rule['FromPort']
+                                else:
+                                    port_range = "%d - %d" % (rule['FromPort'], rule['ToPort'])
+                            create_relationship(graph_from_sg, "ATTACHED", graph_sg, protocol=protocol, port=port_range)
                 if rule['IpRanges']:
                     for cidr in rule['IpRanges']:
                         try:
@@ -358,52 +356,54 @@ def create_sg_relationships():
                                 port_range = "%d - %d" % (rule['FromPort'], rule['ToPort'])
                         rel = create_relationship(graph_cidr, "ATTACHED", graph_sg, protocol=protocol, port=port_range)
 
-            instances = ec2.describe_instances(Filters=[{'Name': 'instance.group-id', 'Values': [sg['GroupId']]}])
-            if not instances['Reservations']:
-                pass
-            else:
-                for instance in instances['Reservations']:
-
-                    instance_id = instance['Instances'][0]['InstanceId']
-                    graph_ec2 = find_node(label="EC2", property_key='instanceId', property_value=instance_id)
+        instances = ec2.describe_instances(Filters=[{'Name': 'instance.group-id', 'Values': [sg['GroupId']]}])
+        if not instances['Reservations']:
+            pass
+        else:
+            for instance in instances['Reservations']:
+                instance_id = instance['Instances'][0]['InstanceId']
+                graph_ec2 = find_node(label="EC2", property_key='instanceId', property_value=instance_id)
+                if graph_ec2 is not None:
                     create_relationship(graph_ec2, "ATTACHED", graph_sg)
 
-            databases = rds.describe_db_instances()['DBInstances']
-            for db in databases:
-                db_sgs = db['VpcSecurityGroups']
-                for db_sg in db_sgs:
-                    if (db_sg['VpcSecurityGroupId'] == sg['GroupId']):
-                        graph_rds = find_node(label="RDS", property_key='rdsId',
-                                              property_value=db['DBInstanceIdentifier'])
+        databases = rds.describe_db_instances()['DBInstances']
+        for db in databases:
+            db_sgs = db['VpcSecurityGroups']
+            for db_sg in db_sgs:
+                if db_sg['VpcSecurityGroupId'] == sg['GroupId']:
+                    graph_rds = find_node(label="RDS", property_key='rdsId',
+                                          property_value=db['DBInstanceIdentifier'])
+                    if graph_rds is not None:
                         create_relationship(graph_rds, "ATTACHED", graph_sg)
 
-            elcs = elasticache.describe_cache_clusters()['CacheClusters']
-            for elc in elcs:
-                elc_sgs = elc['SecurityGroups']
-                for elc_sg in elc_sgs:
-                    if (elc_sg['SecurityGroupId'] == sg['GroupId']):
-                        graph_elc = find_node(label="ElastiCache", property_key='elcId',
-                                              property_value=elc['CacheClusterId'])
+        elcs = elasticache.describe_cache_clusters()['CacheClusters']
+        for elc in elcs:
+            elc_sgs = elc['SecurityGroups']
+            for elc_sg in elc_sgs:
+                if elc_sg['SecurityGroupId'] == sg['GroupId']:
+                    graph_elc = find_node(label="ElastiCache", property_key='elcId',
+                                          property_value=elc['CacheClusterId'])
+                    if graph_elc is not None:
                         create_relationship(graph_elc, "ATTACHED", graph_sg)
 
-            elbs = loadbalancer.describe_load_balancers()['LoadBalancerDescriptions']
-            for elb in elbs:
-                elb_sgs = elb['SecurityGroups']
-                for elb_sg in elb_sgs:
-                    if (elb_sg == sg['GroupId']):
-                        graph_elb = find_node(label="ELB", property_key='name', property_value=elb['LoadBalancerName'])
+        elbs = loadbalancer.describe_load_balancers()['LoadBalancerDescriptions']
+        for elb in elbs:
+            elb_sgs = elb['SecurityGroups']
+            for elb_sg in elb_sgs:
+                if elb_sg == sg['GroupId']:
+                    graph_elb = find_node(label="ELB", property_key='name', property_value=elb['LoadBalancerName'])
+                    if graph_elb is not None:
                         create_relationship(graph_elb, "ATTACHED", graph_sg)
-            if (has_lambda):
-                lambdas = lambdaFunctions.list_functions()['Functions']
-                for l in lambdas:
-                    if l.__contains__('VpcConfig') and l['VpcConfig'] != []:
-                        for lambda_sg in l['VpcConfig']['SecurityGroupIds']:
-                            if lambda_sg == sg['GroupId']:
-                                graph_lambda = find_node(label="Lambda", property_key='name',
-                                                         property_value=l['FunctionName'])
+        if has_lambda:
+            lambdas = lambdaFunctions.list_functions()['Functions']
+            for l in lambdas:
+                if l.__contains__('VpcConfig') and l['VpcConfig'] != []:
+                    for lambda_sg in l['VpcConfig']['SecurityGroupIds']:
+                        if lambda_sg == sg['GroupId']:
+                            graph_lambda = find_node(label="Lambda", property_key='name',
+                                                     property_value=l['FunctionName'])
+                            if graph_lambda is not None:
                                 create_relationship(graph_lambda, "ATTACHED", graph_sg)
-    except:
-        pass
 
 
 graph = Graph(user="neo4j", password="letmein", host="localhost")
@@ -437,7 +437,7 @@ for region in regions:
     create_elb()
     create_alb()
     create_elc()
-    if (has_lambda):
+    if has_lambda:
         create_lambda()
         create_dynamodb()
     create_sg_relationships()
