@@ -87,7 +87,7 @@ def create_nat_gws(vpc_id):
     else:
         for ngw in ngws['NatGateways']:
             name_tag = find_tags(ngw)
-            if name_tag is '':
+            if name_tag == '':
                 name_tag = ngw['NatGatewayId']
             graph_ngw = create_node("NATGW", ngwId=ngw['NatGatewayId'], SubnetId=ngw['SubnetId'], name=name_tag)
             ngws_array.append(graph_ngw)
