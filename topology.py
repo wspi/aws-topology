@@ -278,11 +278,6 @@ def create_alb():
             graph_subnet = find_node(label="Subnet", property_key='SubnetId', property_value=azs['SubnetId'])
             if graph_subnet is not None:
                 create_relationship(graph_alb, "ATTACHED", graph_subnet)
-
-        # for instance in alb["AvailabilityZones"]:
-        #     graph_subnet = find_node(label="Subnet", property_key='SubnetId', property_value=instance['SubnetId'])
-        #     if graph_subnet is not None:
-        #         create_relationship(graph_alb, "BELONGS", graph_subnet)
         create_target_groups(alb_arn)
 
 
@@ -307,11 +302,68 @@ def create_sg():
 
 def create_dynamodb():
     dynamo_tables = dynamodb.list_tables()['TableNames']
-    for tableName in dynamo_tables:
-        table_info = dynamodb.describe_table(TableName=tableName)['Table']
-        create_node("DynamoDB", name=tableName,
+    for table_name in dynamo_tables:
+        table_info = dynamodb.describe_table(TableName=table_name)['Table']
+        create_node("DynamoDB", name=table_name,
                     write_capacity=table_info['ProvisionedThroughput']['WriteCapacityUnits'],
                     read_capacity=table_info['ProvisionedThroughput']['ReadCapacityUnits'])
+
+
+def create_instance_relationships(graph_sg):
+    instances = ec2.describe_instances(Filters=[{'Name': 'instance.group-id', 'Values': [sg['GroupId']]}])
+    if instances['Reservations']:
+        for instance in instances['Reservations']:
+            instance_id = instance['Instances'][0]['InstanceId']
+            graph_ec2 = find_node(label="EC2", property_key='instanceId', property_value=instance_id)
+            if graph_ec2 is not None:
+                create_relationship(graph_ec2, "ATTACHED", graph_sg)
+
+
+def create_database_relationships(graph_sg):
+    databases = rds.describe_db_instances()['DBInstances']
+    for db in databases:
+        db_sgs = db['VpcSecurityGroups']
+        for db_sg in db_sgs:
+            if db_sg['VpcSecurityGroupId'] == sg['GroupId']:
+                graph_rds = find_node(label="RDS", property_key='rdsId',
+                                        property_value=db['DBInstanceIdentifier'])
+                if graph_rds is not None:
+                    create_relationship(graph_rds, "ATTACHED", graph_sg)
+
+
+def create_database_relationships(graph_sg):
+    elcs = elasticache.describe_cache_clusters()['CacheClusters']
+    for elc in elcs:
+        elc_sgs = elc['SecurityGroups']
+        for elc_sg in elc_sgs:
+            if elc_sg['SecurityGroupId'] == sg['GroupId']:
+                graph_elc = find_node(label="ElastiCache", property_key='elcId',
+                                        property_value=elc['CacheClusterId'])
+                if graph_elc is not None:
+                    create_relationship(graph_elc, "ATTACHED", graph_sg)
+
+
+def create_elb_relationships(graph_sg):
+    elbs = loadbalancer.describe_load_balancers()['LoadBalancerDescriptions']
+    for elb in elbs:
+        elb_sgs = elb['SecurityGroups']
+        for elb_sg in elb_sgs:
+            if elb_sg == sg['GroupId']:
+                graph_elb = find_node(label="ELB", property_key='name', property_value=elb['LoadBalancerName'])
+                if graph_elb is not None:
+                    create_relationship(graph_elb, "ATTACHED", graph_sg)
+
+
+def create_lamda_relationships(graph_sg):
+    lambdas = lambdaFunctions.list_functions()['Functions']
+    for l in lambdas:
+        if l.__contains__('VpcConfig') and l['VpcConfig'] != []:
+            for lambda_sg in l['VpcConfig']['SecurityGroupIds']:
+                if lambda_sg == sg['GroupId']:
+                    graph_lambda = find_node(label="Lambda", property_key='name',
+                                                property_value=l['FunctionName'])
+                    if graph_lambda is not None:
+                        create_relationship(graph_lambda, "ATTACHED", graph_sg)
 
 
 def create_sg_relationships():
@@ -336,7 +388,7 @@ def create_sg_relationships():
                                 else:
                                     port_range = "%d - %d" % (rule['FromPort'], rule['ToPort'])
                             create_relationship(graph_from_sg, "ATTACHED", graph_sg, protocol=protocol, port=port_range)
-                if rule['IpRanges']:
+                elif rule['IpRanges']:
                     for cidr in rule['IpRanges']:
                         try:
                             graph_cidr = find_node(label="IP", property_key='cidr', property_value=cidr['CidrIp'])
@@ -351,54 +403,14 @@ def create_sg_relationships():
                                 port_range = rule['FromPort']
                             else:
                                 port_range = "%d - %d" % (rule['FromPort'], rule['ToPort'])
-                        rel = create_relationship(graph_cidr, "ATTACHED", graph_sg, protocol=protocol, port=port_range)
+                        create_relationship(graph_cidr, "ATTACHED", graph_sg, protocol=protocol, port=port_range)
 
-        instances = ec2.describe_instances(Filters=[{'Name': 'instance.group-id', 'Values': [sg['GroupId']]}])
-        if instances['Reservations']:
-            for instance in instances['Reservations']:
-                instance_id = instance['Instances'][0]['InstanceId']
-                graph_ec2 = find_node(label="EC2", property_key='instanceId', property_value=instance_id)
-                if graph_ec2 is not None:
-                    create_relationship(graph_ec2, "ATTACHED", graph_sg)
-
-        databases = rds.describe_db_instances()['DBInstances']
-        for db in databases:
-            db_sgs = db['VpcSecurityGroups']
-            for db_sg in db_sgs:
-                if db_sg['VpcSecurityGroupId'] == sg['GroupId']:
-                    graph_rds = find_node(label="RDS", property_key='rdsId',
-                                          property_value=db['DBInstanceIdentifier'])
-                    if graph_rds is not None:
-                        create_relationship(graph_rds, "ATTACHED", graph_sg)
-
-        elcs = elasticache.describe_cache_clusters()['CacheClusters']
-        for elc in elcs:
-            elc_sgs = elc['SecurityGroups']
-            for elc_sg in elc_sgs:
-                if elc_sg['SecurityGroupId'] == sg['GroupId']:
-                    graph_elc = find_node(label="ElastiCache", property_key='elcId',
-                                          property_value=elc['CacheClusterId'])
-                    if graph_elc is not None:
-                        create_relationship(graph_elc, "ATTACHED", graph_sg)
-
-        elbs = loadbalancer.describe_load_balancers()['LoadBalancerDescriptions']
-        for elb in elbs:
-            elb_sgs = elb['SecurityGroups']
-            for elb_sg in elb_sgs:
-                if elb_sg == sg['GroupId']:
-                    graph_elb = find_node(label="ELB", property_key='name', property_value=elb['LoadBalancerName'])
-                    if graph_elb is not None:
-                        create_relationship(graph_elb, "ATTACHED", graph_sg)
+        create_instance_relationships(graph_sg)
+        create_database_relationships(graph_sg)
+        create_database_relationships(graph_sg)
+        create_elb_relationships(graph_sg)
         if has_lambda:
-            lambdas = lambdaFunctions.list_functions()['Functions']
-            for l in lambdas:
-                if l.__contains__('VpcConfig') and l['VpcConfig'] != []:
-                    for lambda_sg in l['VpcConfig']['SecurityGroupIds']:
-                        if lambda_sg == sg['GroupId']:
-                            graph_lambda = find_node(label="Lambda", property_key='name',
-                                                     property_value=l['FunctionName'])
-                            if graph_lambda is not None:
-                                create_relationship(graph_lambda, "ATTACHED", graph_sg)
+            create_lamda_relationships(graph_sg)
 
 
 graph = Graph(user="neo4j", password="letmein", host="localhost")
