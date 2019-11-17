@@ -49,9 +49,7 @@ def create_relationship(source, verb, destination):
 def create_subnets(graph_region, vpc_id):
     subnets_array = []
     subnets = ec2.describe_subnets(Filters=[{'Name': 'vpc-id', 'Values': [vpc_id]}])
-    if not subnets['Subnets']:
-        pass
-    else:
+    if  subnets['Subnets']:
         for subnet in subnets['Subnets']:
             graph_az = create_node("AvailabilityZone", name=subnet['AvailabilityZone'],
                                    AvailabilityZoneId=subnet['AvailabilityZoneId'])
@@ -68,9 +66,7 @@ def create_subnets(graph_region, vpc_id):
 def create_igws(vpc_id):
     igws_array = []
     igws = ec2.describe_internet_gateways(Filters=[{'Name': 'attachment.vpc-id', 'Values': [vpc_id]}])
-    if not igws['InternetGateways']:
-        pass
-    else:
+    if igws['InternetGateways']:
         for igw in igws['InternetGateways']:
             name = find_tags(igw)
             graph_igw = create_node("IGW", igwId=igw['InternetGatewayId'], VpcId=igw['Attachments'][0]['VpcId'],
@@ -82,9 +78,7 @@ def create_igws(vpc_id):
 def create_nat_gws(vpc_id):
     ngws_array = []
     ngws = ec2.describe_nat_gateways(Filters=[{'Name': 'vpc-id', 'Values': [vpc_id]}])
-    if not ngws['NatGateways']:
-        pass
-    else:
+    if ngws['NatGateways']:
         for ngw in ngws['NatGateways']:
             name_tag = find_tags(ngw)
             if name_tag == '':
@@ -100,9 +94,7 @@ def create_nat_gws(vpc_id):
 
 def create_vpc(graph_region):
     vpcs = ec2.describe_vpcs()
-    if not vpcs['Vpcs']:
-        pass
-    else:
+    if vpcs['Vpcs']:
         for vpc in vpcs['Vpcs']:
             name = find_tags(vpc)
             subnets = create_subnets(graph_region, vpc['VpcId'])
@@ -119,28 +111,30 @@ def create_vpc(graph_region):
                 create_relationship(ngw, "BELONGS", graph_subnet)
 
 
-def create_ec2():
+def create_reservations():
     reservations = ec2.describe_instances()
-    if not reservations['Reservations']:
-        pass
-    else:
+    if reservations['Reservations']:
         for reservation in reservations['Reservations']:
-            for instance in reservation['Instances']:
-                if not instance['State']['Code'] == 48:
-                    name = find_tags(instance)
-                    network_interface_id = instance['NetworkInterfaces'][0]['NetworkInterfaceId']
-                    graph_ec2 = create_node("EC2", InstanceId=instance['InstanceId'], name=name,
-                                            state=instance['State']['Name'], SubnetId=instance['SubnetId'],
-                                            NetworkInterfaceId=network_interface_id, type=instance['InstanceType']
-                                            )
-                    graph_subnet = find_node(label="Subnet", property_key='SubnetId',
-                                             property_value=instance['SubnetId'])
-                    if graph_subnet is not None:
-                        create_relationship(graph_ec2, "ATTACHED", graph_subnet)
-                    graph_eip = find_node(label="EIP", property_key='NetworkInterfaceId',
-                                          property_value=network_interface_id)
-                    if graph_eip is not None:
-                        create_relationship(graph_eip, "ASSOCIATION", graph_ec2)
+            create_ec2(reservation)
+
+
+def create_ec2(reservation):
+    for instance in reservation['Instances']:
+        if not instance['State']['Code'] == 48:
+            name = find_tags(instance)
+            network_interface_id = instance['NetworkInterfaces'][0]['NetworkInterfaceId']
+            graph_ec2 = create_node("EC2", InstanceId=instance['InstanceId'], name=name,
+                                    state=instance['State']['Name'], SubnetId=instance['SubnetId'],
+                                    NetworkInterfaceId=network_interface_id, type=instance['InstanceType']
+                                    )
+            graph_subnet = find_node(label="Subnet", property_key='SubnetId',
+                                        property_value=instance['SubnetId'])
+            if graph_subnet is not None:
+                create_relationship(graph_ec2, "ATTACHED", graph_subnet)
+            graph_eip = find_node(label="EIP", property_key='NetworkInterfaceId',
+                                    property_value=network_interface_id)
+            if graph_eip is not None:
+                create_relationship(graph_eip, "ASSOCIATION", graph_ec2)
 
 
 def create_rds():
@@ -357,9 +351,7 @@ def create_sg_relationships():
                         rel = create_relationship(graph_cidr, "ATTACHED", graph_sg, protocol=protocol, port=port_range)
 
         instances = ec2.describe_instances(Filters=[{'Name': 'instance.group-id', 'Values': [sg['GroupId']]}])
-        if not instances['Reservations']:
-            pass
-        else:
+        if instances['Reservations']:
             for instance in instances['Reservations']:
                 instance_id = instance['Instances'][0]['InstanceId']
                 graph_ec2 = find_node(label="EC2", property_key='instanceId', property_value=instance_id)
@@ -432,7 +424,7 @@ for region in regions:
     # create_network_interfaces()
     create_sns()
     # create_sqs()
-    create_ec2()
+    create_reservations()
     create_rds()
     create_elb()
     create_alb()
