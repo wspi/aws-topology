@@ -38,9 +38,12 @@ def create_node(args, **kwargs):
     return graph_node
 
 
-def create_relationship(source, verb, destination):
+def create_relationship(*args, **kvargs):
     tx = graph.begin()
-    relationship = Relationship(source, verb, destination)
+    if len(kvargs) > 0:
+        relationship = Relationship(*args, **kvargs)
+    else:
+        relationship = Relationship(*args)
     tx.merge(relationship)
     tx.commit()
     return relationship
@@ -58,6 +61,7 @@ def create_subnets(graph_region, vpc_id):
                                        cidr=subnet['CidrBlock'], VpcId=subnet['VpcId'])
             if graph_subnet is not None:
                 create_relationship(graph_subnet, "BELONGS", graph_az)
+            if graph_az is not None:
                 create_relationship(graph_az, "BELONGS", graph_region)
             subnets_array.append(graph_subnet)
     return subnets_array
@@ -131,8 +135,7 @@ def create_ec2(reservation):
                                         property_value=instance['SubnetId'])
             if graph_subnet is not None:
                 create_relationship(graph_ec2, "ATTACHED", graph_subnet)
-            graph_eip = find_node(label="EIP", property_key='NetworkInterfaceId',
-                                    property_value=network_interface_id)
+            graph_eip = find_node(label="EIP", property_key='NetworkInterfaceId', property_value=network_interface_id)
             if graph_eip is not None:
                 create_relationship(graph_eip, "ASSOCIATION", graph_ec2)
 
@@ -253,7 +256,7 @@ def create_sns():
     # tags_for_resource = sns.list_tags_for_resource()
 
 
-def create_target_groups(alb_arn):
+def create_target_groups(alb_arn,graph_alb):
     tgs = elbv2.describe_target_groups(LoadBalancerArn=alb_arn)['TargetGroups']
     for tg in tgs:
         tg_arn = tg['TargetGroupArn']
@@ -278,7 +281,7 @@ def create_alb():
             graph_subnet = find_node(label="Subnet", property_key='SubnetId', property_value=azs['SubnetId'])
             if graph_subnet is not None:
                 create_relationship(graph_alb, "ATTACHED", graph_subnet)
-        create_target_groups(alb_arn)
+        create_target_groups(alb_arn,graph_alb)
 
 
 def create_lambda():
@@ -309,7 +312,7 @@ def create_dynamodb():
                     read_capacity=table_info['ProvisionedThroughput']['ReadCapacityUnits'])
 
 
-def create_instance_relationships(graph_sg):
+def create_instance_relationships(graph_sg, sg):
     instances = ec2.describe_instances(Filters=[{'Name': 'instance.group-id', 'Values': [sg['GroupId']]}])
     if instances['Reservations']:
         for instance in instances['Reservations']:
@@ -319,7 +322,7 @@ def create_instance_relationships(graph_sg):
                 create_relationship(graph_ec2, "ATTACHED", graph_sg)
 
 
-def create_database_relationships(graph_sg):
+def create_database_relationships(graph_sg, sg):
     databases = rds.describe_db_instances()['DBInstances']
     for db in databases:
         db_sgs = db['VpcSecurityGroups']
@@ -331,7 +334,7 @@ def create_database_relationships(graph_sg):
                     create_relationship(graph_rds, "ATTACHED", graph_sg)
 
 
-def create_database_relationships(graph_sg):
+def create_database_relationships(graph_sg, sg):
     elcs = elasticache.describe_cache_clusters()['CacheClusters']
     for elc in elcs:
         elc_sgs = elc['SecurityGroups']
@@ -343,7 +346,7 @@ def create_database_relationships(graph_sg):
                     create_relationship(graph_elc, "ATTACHED", graph_sg)
 
 
-def create_elb_relationships(graph_sg):
+def create_elb_relationships(graph_sg, sg):
     elbs = loadbalancer.describe_load_balancers()['LoadBalancerDescriptions']
     for elb in elbs:
         elb_sgs = elb['SecurityGroups']
@@ -354,7 +357,7 @@ def create_elb_relationships(graph_sg):
                     create_relationship(graph_elb, "ATTACHED", graph_sg)
 
 
-def create_lamda_relationships(graph_sg):
+def create_lamda_relationships(graph_sg, sg):
     lambdas = lambdaFunctions.list_functions()['Functions']
     for l in lambdas:
         if l.__contains__('VpcConfig') and l['VpcConfig'] != []:
@@ -398,7 +401,8 @@ def create_ipranges_relationships(rule, graph_sg):
                 port_range = rule['FromPort']
             else:
                 port_range = "%d - %d" % (rule['FromPort'], rule['ToPort'])
-        create_relationship(graph_cidr, "ATTACHED", graph_sg, protocol=protocol, port=port_range)
+        if graph_cidr is not None:
+            create_relationship(graph_cidr, "ATTACHED", graph_sg, protocol=protocol, port=port_range)
 
 
 def create_sg_relationships():
@@ -413,12 +417,12 @@ def create_sg_relationships():
                 elif rule['IpRanges']:
                     create_ipranges_relationships(rule, graph_sg)
 
-        create_instance_relationships(graph_sg)
-        create_database_relationships(graph_sg)
-        create_database_relationships(graph_sg)
-        create_elb_relationships(graph_sg)
+        create_instance_relationships(graph_sg, sg)
+        create_database_relationships(graph_sg, sg)
+        create_database_relationships(graph_sg, sg)
+        create_elb_relationships(graph_sg, sg)
         if has_lambda:
-            create_lamda_relationships(graph_sg)
+            create_lamda_relationships(graph_sg, sg)
 
 
 graph = Graph(user="neo4j", password="letmein", host="localhost")
