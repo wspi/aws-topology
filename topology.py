@@ -252,7 +252,7 @@ def create_sns():
             print("sns.list_phone_numbers_opted_out: " + e.response['Error']['Message'])
         else:
             print("Unexpected error: %s" % e)
-    tags_for_resource = sns.list_tags_for_resource()
+    # tags_for_resource = sns.list_tags_for_resource()
 
 
 def create_target_groups(alb_arn, graph_alb):
