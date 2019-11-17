@@ -366,6 +366,41 @@ def create_lamda_relationships(graph_sg):
                         create_relationship(graph_lambda, "ATTACHED", graph_sg)
 
 
+def create_useridgrouppairs_relationships(rule, graph_sg):
+    for group in rule['UserIdGroupPairs']:
+        graph_from_sg = find_node(label="SecurityGroup", property_key='securityGroupId',
+                                    property_value=group['GroupId'])
+        if graph_from_sg is not None:
+            if rule['IpProtocol'] == '-1':
+                protocol = 'All'
+                port_range = '0 - 65535'
+            else:
+                protocol = rule['IpProtocol']
+                if rule['FromPort'] == rule['ToPort']:
+                    port_range = rule['FromPort']
+                else:
+                    port_range = "%d - %d" % (rule['FromPort'], rule['ToPort'])
+            create_relationship(graph_from_sg, "ATTACHED", graph_sg, protocol=protocol, port=port_range)
+
+
+def create_ipranges_relationships(rule, graph_sg):
+    for cidr in rule['IpRanges']:
+        try:
+            graph_cidr = find_node(label="IP", property_key='cidr', property_value=cidr['CidrIp'])
+        except:
+            graph_cidr = create_node("IP", cidr=cidr['CidrIp'])
+        if rule['IpProtocol'] == '-1':
+            protocol = 'All'
+            port_range = '0 - 65535'
+        else:
+            protocol = rule['IpProtocol']
+            if rule['FromPort'] == rule['ToPort']:
+                port_range = rule['FromPort']
+            else:
+                port_range = "%d - %d" % (rule['FromPort'], rule['ToPort'])
+        create_relationship(graph_cidr, "ATTACHED", graph_sg, protocol=protocol, port=port_range)
+
+
 def create_sg_relationships():
     security_groups = ec2.describe_security_groups()
     for sg in security_groups['SecurityGroups']:
@@ -374,36 +409,9 @@ def create_sg_relationships():
             ingress_rules = sg['IpPermissions']
             for rule in ingress_rules:
                 if rule['UserIdGroupPairs']:
-                    for group in rule['UserIdGroupPairs']:
-                        graph_from_sg = find_node(label="SecurityGroup", property_key='securityGroupId',
-                                                  property_value=group['GroupId'])
-                        if graph_from_sg is not None:
-                            if rule['IpProtocol'] == '-1':
-                                protocol = 'All'
-                                port_range = '0 - 65535'
-                            else:
-                                protocol = rule['IpProtocol']
-                                if rule['FromPort'] == rule['ToPort']:
-                                    port_range = rule['FromPort']
-                                else:
-                                    port_range = "%d - %d" % (rule['FromPort'], rule['ToPort'])
-                            create_relationship(graph_from_sg, "ATTACHED", graph_sg, protocol=protocol, port=port_range)
+                    create_useridgrouppairs_relationships(rule, graph_sg)
                 elif rule['IpRanges']:
-                    for cidr in rule['IpRanges']:
-                        try:
-                            graph_cidr = find_node(label="IP", property_key='cidr', property_value=cidr['CidrIp'])
-                        except:
-                            graph_cidr = create_node("IP", cidr=cidr['CidrIp'])
-                        if rule['IpProtocol'] == '-1':
-                            protocol = 'All'
-                            port_range = '0 - 65535'
-                        else:
-                            protocol = rule['IpProtocol']
-                            if rule['FromPort'] == rule['ToPort']:
-                                port_range = rule['FromPort']
-                            else:
-                                port_range = "%d - %d" % (rule['FromPort'], rule['ToPort'])
-                        create_relationship(graph_cidr, "ATTACHED", graph_sg, protocol=protocol, port=port_range)
+                    create_ipranges_relationships(rule, graph_sg)
 
         create_instance_relationships(graph_sg)
         create_database_relationships(graph_sg)
