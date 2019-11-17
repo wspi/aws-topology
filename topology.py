@@ -250,8 +250,21 @@ def create_sns():
             print("sns.list_phone_numbers_opted_out: " + e.response['Error']['Message'])
         else:
             print("Unexpected error: %s" % e)
-
     # tags_for_resource = sns.list_tags_for_resource()
+
+
+def create_target_groups(alb_arn):
+    tgs = elbv2.describe_target_groups(LoadBalancerArn=alb_arn)['TargetGroups']
+    for tg in tgs:
+        tg_arn = tg['TargetGroupArn']
+        targets = elbv2.describe_target_health(TargetGroupArn=tg_arn)['TargetHealthDescriptions']
+        graph_tg = create_node("Target Group", name=tg['TargetGroupName'])
+        create_relationship(graph_tg, "ATTACHED", graph_alb)
+        for target in targets:
+            graph_instance = find_node(label="EC2", property_key='instanceId',
+                                        property_value=target['Target']['Id'])
+            if graph_instance is not None:
+                create_relationship(graph_instance, "ATTACHED", graph_tg)
 
 
 def create_alb():
@@ -260,34 +273,24 @@ def create_alb():
         graph_alb = create_node("ALB", name=alb['LoadBalancerName'], dnsname=alb['DNSName'], scheme=alb['Scheme'],
                                 VpcId=alb['VpcId'])
         alb_arn = alb['LoadBalancerArn']
+
         for azs in alb['AvailabilityZones']:
             graph_subnet = find_node(label="Subnet", property_key='SubnetId', property_value=azs['SubnetId'])
             if graph_subnet is not None:
                 create_relationship(graph_alb, "ATTACHED", graph_subnet)
 
-        tgs = elbv2.describe_target_groups(LoadBalancerArn=alb_arn)['TargetGroups']
-        for tg in tgs:
-            tg_arn = tg['TargetGroupArn']
-            targets = elbv2.describe_target_health(TargetGroupArn=tg_arn)['TargetHealthDescriptions']
-            graph_tg = create_node("Target Group", name=tg['TargetGroupName'])
-            create_relationship(graph_tg, "ATTACHED", graph_alb)
-            for target in targets:
-                graph_instance = find_node(label="EC2", property_key='instanceId',
-                                           property_value=target['Target']['Id'])
-                if graph_instance is not None:
-                    create_relationship(graph_instance, "ATTACHED", graph_tg)
-
-        for instance in alb["AvailabilityZones"]:
-            graph_subnet = find_node(label="Subnet", property_key='SubnetId', property_value=instance['SubnetId'])
-            if graph_subnet is not None:
-                create_relationship(graph_alb, "BELONGS", graph_subnet)
+        # for instance in alb["AvailabilityZones"]:
+        #     graph_subnet = find_node(label="Subnet", property_key='SubnetId', property_value=instance['SubnetId'])
+        #     if graph_subnet is not None:
+        #         create_relationship(graph_alb, "BELONGS", graph_subnet)
+        create_target_groups(alb_arn)
 
 
 def create_lambda():
     try:
         lambdas = lambdaFunctions.list_functions()['Functions']
         for l in lambdas:
-            graph_lambda = create_node("Lambda", name=l['FunctionName'])
+            create_node("Lambda", name=l['FunctionName'])
     except botocore.exceptions.EndpointConnectionError as e:
         global has_lambda
         has_lambda = False
@@ -416,7 +419,7 @@ for region in regions:
     dynamodb = boto3.client('dynamodb', region_name=region)
 
     graph_region = create_node("Region", name=region)
-    rel = create_relationship(graph_region, "BELONGS", graph_provider)
+    create_relationship(graph_region, "BELONGS", graph_provider)
 
     create_eip()
     create_vpc(graph_region)
