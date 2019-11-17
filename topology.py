@@ -52,7 +52,7 @@ def create_relationship(*args, **kvargs):
 def create_subnets(graph_region, vpc_id):
     subnets_array = []
     subnets = ec2.describe_subnets(Filters=[{'Name': 'vpc-id', 'Values': [vpc_id]}])
-    if  subnets['Subnets']:
+    if subnets['Subnets']:
         for subnet in subnets['Subnets']:
             graph_az = create_node("AvailabilityZone", name=subnet['AvailabilityZone'],
                                    AvailabilityZoneId=subnet['AvailabilityZoneId'])
@@ -131,8 +131,7 @@ def create_ec2(reservation):
                                     state=instance['State']['Name'], SubnetId=instance['SubnetId'],
                                     NetworkInterfaceId=network_interface_id, type=instance['InstanceType']
                                     )
-            graph_subnet = find_node(label="Subnet", property_key='SubnetId',
-                                        property_value=instance['SubnetId'])
+            graph_subnet = find_node(label="Subnet", property_key='SubnetId', property_value=instance['SubnetId'])
             if graph_subnet is not None:
                 create_relationship(graph_ec2, "ATTACHED", graph_subnet)
             graph_eip = find_node(label="EIP", property_key='NetworkInterfaceId', property_value=network_interface_id)
@@ -253,10 +252,10 @@ def create_sns():
             print("sns.list_phone_numbers_opted_out: " + e.response['Error']['Message'])
         else:
             print("Unexpected error: %s" % e)
-    # tags_for_resource = sns.list_tags_for_resource()
+    tags_for_resource = sns.list_tags_for_resource()
 
 
-def create_target_groups(alb_arn,graph_alb):
+def create_target_groups(alb_arn, graph_alb):
     tgs = elbv2.describe_target_groups(LoadBalancerArn=alb_arn)['TargetGroups']
     for tg in tgs:
         tg_arn = tg['TargetGroupArn']
@@ -264,8 +263,7 @@ def create_target_groups(alb_arn,graph_alb):
         graph_tg = create_node("Target Group", name=tg['TargetGroupName'])
         create_relationship(graph_tg, "ATTACHED", graph_alb)
         for target in targets:
-            graph_instance = find_node(label="EC2", property_key='instanceId',
-                                        property_value=target['Target']['Id'])
+            graph_instance = find_node(label="EC2", property_key='instanceId', property_value=target['Target']['Id'])
             if graph_instance is not None:
                 create_relationship(graph_instance, "ATTACHED", graph_tg)
 
@@ -281,17 +279,15 @@ def create_alb():
             graph_subnet = find_node(label="Subnet", property_key='SubnetId', property_value=azs['SubnetId'])
             if graph_subnet is not None:
                 create_relationship(graph_alb, "ATTACHED", graph_subnet)
-        create_target_groups(alb_arn,graph_alb)
+        create_target_groups(alb_arn, graph_alb)
 
 
 def create_lambda():
-    try:
-        lambdas = lambdaFunctions.list_functions()['Functions']
-        for l in lambdas:
-            create_node("Lambda", name=l['FunctionName'])
-    except botocore.exceptions.EndpointConnectionError as e:
-        global has_lambda
-        has_lambda = False
+    lambdas = lambdaFunctions.list_functions()['Functions']
+    for l in lambdas:
+        create_node("Lambda", name=l['FunctionName'])
+    global has_lambda
+    has_lambda = False
 
 
 def create_sg():
@@ -328,20 +324,18 @@ def create_database_relationships(graph_sg, sg):
         db_sgs = db['VpcSecurityGroups']
         for db_sg in db_sgs:
             if db_sg['VpcSecurityGroupId'] == sg['GroupId']:
-                graph_rds = find_node(label="RDS", property_key='rdsId',
-                                        property_value=db['DBInstanceIdentifier'])
+                graph_rds = find_node(label="RDS", property_key='rdsId', property_value=db['DBInstanceIdentifier'])
                 if graph_rds is not None:
                     create_relationship(graph_rds, "ATTACHED", graph_sg)
 
 
-def create_database_relationships(graph_sg, sg):
+def create_elasticache_relationships(graph_sg, sg):
     elcs = elasticache.describe_cache_clusters()['CacheClusters']
     for elc in elcs:
         elc_sgs = elc['SecurityGroups']
         for elc_sg in elc_sgs:
             if elc_sg['SecurityGroupId'] == sg['GroupId']:
-                graph_elc = find_node(label="ElastiCache", property_key='elcId',
-                                        property_value=elc['CacheClusterId'])
+                graph_elc = find_node(label="ElastiCache", property_key='elcId', property_value=elc['CacheClusterId'])
                 if graph_elc is not None:
                     create_relationship(graph_elc, "ATTACHED", graph_sg)
 
@@ -363,16 +357,13 @@ def create_lamda_relationships(graph_sg, sg):
         if l.__contains__('VpcConfig') and l['VpcConfig'] != []:
             for lambda_sg in l['VpcConfig']['SecurityGroupIds']:
                 if lambda_sg == sg['GroupId']:
-                    graph_lambda = find_node(label="Lambda", property_key='name',
-                                                property_value=l['FunctionName'])
-                    if graph_lambda is not None:
-                        create_relationship(graph_lambda, "ATTACHED", graph_sg)
+                    graph_lambda = find_node(label="Lambda", property_key='name', property_value=l['FunctionName'])
+                    create_relationship(graph_lambda, "ATTACHED", graph_sg)
 
 
 def create_useridgrouppairs_relationships(rule, graph_sg):
     for group in rule['UserIdGroupPairs']:
-        graph_from_sg = find_node(label="SecurityGroup", property_key='securityGroupId',
-                                    property_value=group['GroupId'])
+        graph_from_sg = find_node(label="SecurityGroup", property_key='securityGroupId', property_value=group['GroupId'])
         if graph_from_sg is not None:
             if rule['IpProtocol'] == '-1':
                 protocol = 'All'
@@ -419,7 +410,7 @@ def create_sg_relationships():
 
         create_instance_relationships(graph_sg, sg)
         create_database_relationships(graph_sg, sg)
-        create_database_relationships(graph_sg, sg)
+        create_elasticache_relationships(graph_sg, sg)
         create_elb_relationships(graph_sg, sg)
         if has_lambda:
             create_lamda_relationships(graph_sg, sg)
