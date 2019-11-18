@@ -30,30 +30,35 @@
                 server_password: "letmein",
                 labels: {
                     "EC2": {
+                        "thickness": "weight",
                         "caption": "name"
                     },
                     "VPC": {
+                        "thickness": "weight",
                         "caption": "name"
                     },
                     "IP": {
+                        "thickness": "weight",
                         "caption": "name"
                     },
                     "Region": {
+                        "thickness": "weight",
                         "caption": "name"
                     },
                     "RDS": {
+                        "thickness": "weight",
                         "caption": "name"
                     },
                     "Subnet": {
+                        "thickness": "weight",
                         "caption": "cidr"
                     },
                     "IGW": {
-                        "caption": "name"
-                    },
-                    "SecurityGroup": {
+                        "thickness": "weight",
                         "caption": "name"
                     },
                     "Provider": {
+                        "thickness": "weight",
                         "caption": "name",
                         "size": "80"
                     }
@@ -73,7 +78,7 @@
                 arrows: true,
                 hierarchical_layout: true,
                 hierarchical_sort_method: "directed",
-                initial_cypher: "MATCH (n) WHERE n:Provider OR n:EC2 OR n:VPC OR n:IP OR n:Region OR n:RDS OR n:Subnet OR n:IGW OR n:SecurityGroup OR n:AZ MATCH (n)-[r]-() RETURN n,r"
+                initial_cypher: "MATCH (n) WHERE n:Provider OR n:EC2 OR n:VPC OR n:IP OR n:Region OR n:RDS OR n:Subnet OR n:IGW OR n:AZ MATCH (n)-[r]-() RETURN n,r"
             };
             viz = new NeoVis.default(config);
             viz.render();

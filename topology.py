@@ -418,10 +418,13 @@ def create_sg_relationships():
 
 graph = Graph(user="neo4j", password="letmein", host="localhost")
 
+graph.delete_all()
 has_lambda = False
 regions = ["eu-central-1", "eu-west-1", "eu-west-2", "eu-west-3", "eu-north-1"]
+sts = boto3.client('sts')
+caller_identify = sts.get_caller_identity()
 
-graph_provider = create_node("Provider", name='AWS')
+graph_provider = create_node("Provider", name='AWS', Account=caller_identify['Account'])
 
 for region in regions:
     print("Querying region: " + region)
