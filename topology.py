@@ -115,6 +115,29 @@ def create_vpc(graph_region):
                 create_relationship(ngw, "BELONGS", graph_subnet)
 
 
+def find_attachments(volume):
+    attachments = []
+    for attachment in volume['Attachments']:
+        attachments.append(attachment)
+    return attachments
+
+
+def create_ec2_volumes():
+    volumes = ec2.describe_volumes()
+    for volume in volumes['Volumes']:
+        attachments = find_attachments(volume)
+        name_tag = find_tags(volume)
+        if name_tag == '':
+            name_tag = volume['VolumeId']
+        if len(attachments) >= 1:
+            create_node("Volumes", name=name_tag, AvailabilityZone=volume['AvailabilityZone'], Size=volume['Size'],
+                        VolumeId=volume['VolumeId'], VolumeType=volume['VolumeType'], Encrypted=volume['Encrypted'],
+                        DeviceName=volume['Attachments'][0]['Device'], InstanceId=volume['Attachments'][0]['InstanceId'])
+        else:
+            create_node("Volumes", name=name_tag, AvailabilityZone=volume['AvailabilityZone'], Size=volume['Size'],
+                        VolumeId=volume['VolumeId'], VolumeType=volume['VolumeType'], Encrypted=volume['Encrypted'])
+
+
 def create_reservations():
     reservations = ec2.describe_instances()
     if reservations['Reservations']:
@@ -137,12 +160,16 @@ def create_ec2(reservation):
             graph_eip = find_node(label="EIP", property_key='NetworkInterfaceId', property_value=network_interface_id)
             if graph_eip is not None:
                 create_relationship(graph_eip, "ASSOCIATION", graph_ec2)
+            graph_volume = find_node(label="Volumes", property_key='InstanceId', property_value=instance['InstanceId'])
+            if graph_volume is not None:
+                create_relationship(graph_ec2, "ATTACHED", graph_volume)
 
 
 def create_rds():
-    databases = rds.describe_db_instances()['DBInstances']
-    for db in databases:
-        create_node("RDS", rdsId=db['DBInstanceIdentifier'], DBInstanceClass=db['DBInstanceClass'])
+    databases = rds.describe_db_instances()
+    for db in databases['DBInstances']:
+        create_node("RDS", rdsId=db['DBInstanceIdentifier'], DBInstanceClass=db['DBInstanceClass'], Engine=db['Engine'],
+                    EngineVersion=db['EngineVersion'], MultiAZ=db['MultiAZ'], AllocatedStorage=db['AllocatedStorage'])
 
 
 def create_elc():
@@ -318,7 +345,7 @@ def create_instance_relationships(graph_sg, sg):
                 create_relationship(graph_ec2, "ATTACHED", graph_sg)
 
 
-def create_database_relationships(graph_sg, sg):
+def create_database_sg_relationships(graph_sg, sg):
     databases = rds.describe_db_instances()['DBInstances']
     for db in databases:
         db_sgs = db['VpcSecurityGroups']
@@ -327,6 +354,14 @@ def create_database_relationships(graph_sg, sg):
                 graph_rds = find_node(label="RDS", property_key='rdsId', property_value=db['DBInstanceIdentifier'])
                 if graph_rds is not None:
                     create_relationship(graph_rds, "ATTACHED", graph_sg)
+
+
+def create_database_subnet_relationships(graph_sg, sg):
+    databases = rds.describe_db_instances()['DBInstances']
+    for db_subnets in databases['DBSubnetGroup']['Subnets']:
+        graph_rds = find_node(label="Subnets", property_key='SubnetId', property_value=db['SubnetIdentifier'])
+        if graph_rds is not None:
+            create_relationship(graph_rds, "ATTACHED", graph_sg)
 
 
 def create_elasticache_relationships(graph_sg, sg):
@@ -409,7 +444,7 @@ def create_sg_relationships():
                     create_ipranges_relationships(rule, graph_sg)
 
         create_instance_relationships(graph_sg, sg)
-        create_database_relationships(graph_sg, sg)
+        create_database_sg_relationships(graph_sg, sg)
         create_elasticache_relationships(graph_sg, sg)
         create_elb_relationships(graph_sg, sg)
         if has_lambda:
@@ -419,7 +454,7 @@ def create_sg_relationships():
 graph = Graph(user="neo4j", password="letmein", host="localhost")
 
 graph.delete_all()
-has_lambda = False
+has_lambda = True
 regions = ["eu-central-1", "eu-west-1", "eu-west-2", "eu-west-3", "eu-north-1"]
 sts = boto3.client('sts')
 caller_identify = sts.get_caller_identity()
@@ -445,6 +480,7 @@ for region in regions:
     # create_network_interfaces()
     create_sns()
     # create_sqs()
+    create_ec2_volumes()
     create_reservations()
     create_rds()
     create_elb()
