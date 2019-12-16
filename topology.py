@@ -29,7 +29,11 @@ def find_tags(*args):
 
 
 def find_node(*args, **kwargs):
-    return args[0].find_one(**kwargs)
+    if len(args) > 3:
+        found = args[0].nodes.match(args[2], **kwargs).first()
+    else:
+       found =  args[0].find_one(**kwargs)
+    return found
 
 
 def create_node(*args, **kvargs):
@@ -96,7 +100,7 @@ def create_nat_gws(*args):
             graph_ngw = create_node(args[0], args[1], "NATGW", ngwId=ngw['NatGatewayId'], SubnetId=ngw['SubnetId'],
                                     Name=name_tag)
             ngws_array.append(graph_ngw)
-            find_eip = find_node(args[0], args[1], label="EIP", property_key='AllocationId',
+            find_eip = find_node(args[0], args[1], "EIP", property_key='AllocationId',
                                  property_value=ngw['NatGatewayAddresses'][0]['AllocationId'])
             if find_eip is not None:
                 create_relationship(args[0], args[1], find_eip, "BELONGS", graph_ngw)
@@ -168,7 +172,7 @@ def create_ec2(*args):
                                      property_value=instance['SubnetId'])
             if graph_subnet is not None:
                 create_relationship(args[0], args[1], graph_ec2, "ATTACHED", graph_subnet)
-            graph_eip = find_node(args[0], args[1], label="EIP", property_key='NetworkInterfaceId',
+            graph_eip = find_node(args[0], args[1], "EIP", property_key='NetworkInterfaceId',
                                   property_value=network_interface_id)
             if graph_eip is not None:
                 create_relationship(args[0], args[1], graph_eip, "ASSOCIATION", graph_ec2)
@@ -518,11 +522,10 @@ def main():
     logger = logger_dict['log_handle']
     ch = logger_dict['console_handle']
     graph = Graph(user="neo4j", password="letmein", host="localhost")
-
     graph.delete_all()
     has_lambda = True
-    aws_profiles = ["easyjet-prod", "easyjet-nonprod"]
-
+    # aws_profiles = ["easyjet-prod", "easyjet-nonprod"]
+    aws_profiles = ["blue-badge"]
     for profile in aws_profiles:
         logger_dict['log_handle'].info("Specifying aws profile: " + profile)
         formatter = logging.Formatter('%(asctime)s - %(funcName)s - %(levelname)s - ' + profile + ' - %(message)s')
